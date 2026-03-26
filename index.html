@@ -2074,14 +2074,16 @@ async function initializeApp() {
 
     // 讀取後端通訊錄
 // 我們會將此函式放在程式碼最後面執行，讓它在背景默默載入
-function loadContactList() {
+async function loadContactList() {
   console.log("正在背景載入通訊錄...");
-  google.script.run.withSuccessHandler(function(contacts) {
+  try {
+    // 改用新的 callGasApi 向後端請求資料
+    const contacts = await callGasApi('getContactList', {});
+    
     globalContactList = contacts;
     console.log("通訊錄已載入完成", Object.keys(contacts).length + " 個組別");
     
     // 如果資料回來時，表單已經打開了，嘗試即時更新下拉選單
-    // 嘗試抓取可能存在的下拉選單 ID (假設前綴是 main)
     const groupSelect = document.getElementById('main_inviteeGroup');
     if (groupSelect && groupSelect.options.length <= 1) {
         let optionsHtml = '<option value="">選擇組別...</option>';
@@ -2090,8 +2092,13 @@ function loadContactList() {
         });
         groupSelect.innerHTML = optionsHtml;
     }
-  }).getContactList();
+  } catch (error) {
+    console.error("載入通訊錄發生錯誤:", error);
+  }
 }
+
+// 保持在最下方呼叫
+loadContactList();
 
 // --- [新增] 邀請名單相關 UI 操作函式 ---
 
