@@ -579,7 +579,7 @@ async function initializeApp() {
       localStorage.removeItem(SESSION_STORAGE_KEY);
       currentUserRole = null;
       showAuthView("連線階段已過期或未授權", false);
-      document.getElementById('authError').textContent = errorMessage + " 請重新整理頁面以再次嘗試登入。";
+      document.getElementById('authError').innerHTML = errorMessage + " 請重新整理頁面以再次嘗試登入。";
     }
 
     // ===============================================================
