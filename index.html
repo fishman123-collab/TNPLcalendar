@@ -1432,29 +1432,24 @@ async function initializeApp() {
     const response = await callGasApi('getInitialData', {});
     
     if (response.success) {
-                    initialDataCache = response;
-                    populateSelectWithOptions('location', initialDataCache.venueGroups, '所有地點');
-                    populateSelectWithOptions('type', initialDataCache.types.filter(t => t !== '--其他用途--'), '所有類型');
-                    populateSelectWithOptions('audience', initialDataCache.audiences, '所有對象');
-                    populateSelectWithOptions('status', initialDataCache.statuses, '所有狀態');
-                    populateSelectWithOptions('visibility', initialDataCache.visibilities, '全部');
+      initialDataCache = response;
+      populateSelectWithOptions('location', initialDataCache.venueGroups, '所有地點');
+      populateSelectWithOptions('type', initialDataCache.types.filter(t => t !== '--其他用途--'), '所有類型');
+      populateSelectWithOptions('audience', initialDataCache.audiences, '所有對象');
+      populateSelectWithOptions('status', initialDataCache.statuses, '所有狀態');
+      populateSelectWithOptions('visibility', initialDataCache.visibilities, '全部');
 
-                    document.getElementById('initialLoadingMessage').style.display = 'none';
-                    document.getElementById('createActivityBtn').disabled = false;
-                    document.getElementById('createMeetingBtn').disabled = false;
-                    document.getElementById('createExhibitionBtn').disabled = false;
-                } else {
+      document.getElementById('initialLoadingMessage').style.display = 'none';
+      document.getElementById('createActivityBtn').disabled = false;
+      document.getElementById('createMeetingBtn').disabled = false;
+      document.getElementById('createExhibitionBtn').disabled = false;
+    } else {
       document.getElementById('initialLoadingMessage').textContent = "載入篩選選項失敗: " + response.error;
     }
   } catch (error) {
     document.getElementById('initialLoadingMessage').textContent = "載入時發生錯誤: " + error.message;
   }
-            })
-            .withFailureHandler(error => {
-                document.getElementById('initialLoadingMessage').textContent = "載入篩選選項時發生錯誤: " + error.message;
-            })
-            .getInitialData(localStorage.getItem(SESSION_STORAGE_KEY));
-    }
+} // <--- 這樣就完美結束了，不要再接 .withFailureHandler
     function handleReset() {
       document.getElementById('searchForm').reset(); 
       document.getElementById('simpleKeyword').value = '';
