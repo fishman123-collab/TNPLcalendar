@@ -376,9 +376,14 @@ async function callGasApi(action, payload = {}) {
   try {
     const response = await fetch(GAS_API_URL, {
       method: 'POST',
+      redirect: 'follow', // 必須開啟 follow，因為 GAS 處理完 POST 後會 302 跳轉回傳結果
+      headers: {
+        // 宣告為 text/plain 非常重要！這可以避免瀏覽器發送 OPTIONS 預檢請求而導致 CORS 報錯
+        "Content-Type": "text/plain;charset=utf-8", 
+      },
       body: JSON.stringify({
         action: action,
-        lineUserId: globalLineUserId, // 每次請求都帶上 LINE ID 驗證
+        lineUserId: globalLineUserId,
         payload: payload
       })
     });
