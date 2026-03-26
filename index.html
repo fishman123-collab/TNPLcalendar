@@ -1,6 +1,7 @@
 <!DOCTYPE html>
 <html>
 <head>
+  <script charset="utf-8" src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
   <base target="_top">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>南市圖活動查詢系統 (最終整合版)</title>
@@ -452,9 +453,34 @@ let globalContactList = {};
     // ===============================================================
     // --- 4. 驗證與授權 (Authentication & Authorization) ---
     // ===============================================================
-    function initializeApp() {
-        showAuthView("正在驗證您的存取權限...", true);
-        initializeTimeOptions();
+    // 前端：初始化 LIFF 與驗證
+async function initializeApp() {
+    showAuthView("正在連接 LINE 驗證系統...", true);
+    initializeTimeOptions();
+
+    try {
+        // 替換為您的 LIFF ID (需在 LINE Developers Console 申請並開啟 email 獲取權限)
+        await liff.init({ liffId: "您的_LIFF_ID" }); 
+        
+        if (!liff.isLoggedIn()) {
+            liff.login(); // 未登入則跳轉 LINE 登入畫面
+            return;
+        }
+
+        // 獲取使用者 LINE 資訊
+        const profile = await liff.getProfile();
+        const idToken = liff.getDecodedIDToken();
+        const userEmail = idToken ? idToken.email : null; // 需要在 LINE Login 設定中審核 Email 權限
+
+        const lineUserData = {
+            userId: profile.userId,
+            displayName: profile.displayName,
+            email: userEmail
+        };
+
+        showAuthView("驗證權限中...", true);
+
+        // 將 LINE 資料傳給後端 GAS 進行權限比對
         google.script.run
             .withSuccessHandler(response => {
                 if (response && response.authenticated) {
@@ -464,12 +490,16 @@ let globalContactList = {};
                     loadInitialData();
                     initInquirySystem(response.userRole);
                 } else {
-                    handleAuthError(response ? response.error : "您的帳戶未被授權。");
+                    handleAuthError(response ? response.error : "您的 LINE 帳戶未被授權。");
                 }
             })
-            .withFailureHandler(error => handleAuthError("與伺服器連線時發生錯誤: " + error.message))
-            .checkUserAndGetSession();
+            .withFailureHandler(error => handleAuthError("伺服器連線錯誤: " + error.message))
+            .verifyLiffUser(lineUserData); // 呼叫新的後端驗證函數
+
+    } catch (err) {
+        handleAuthError("LIFF 初始化失敗：" + err.message);
     }
+}
     function handleLogout() {
       const sessionId = localStorage.getItem(SESSION_STORAGE_KEY);
       if (sessionId) google.script.run.doLogout(sessionId);
