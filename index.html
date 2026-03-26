@@ -1,0 +1,2243 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <base target="_top">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>南市圖活動查詢系統 (最終整合版)</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    /**
+     * ==================================================================================================================
+     * 南市圖活動系統 - 最終整合版 v11.1 (功能修正版)
+     * ==================================================================================================================
+     * @version 11.1 (2025-07-27)
+     * @description
+     * - [權限修正] 根據角色權限，隱藏 "委外櫃台" 使用者的 "新增行程" 與 "複製" 按鈕。
+     * - [功能修正] 修正複製功能，確保能從後端獲取最完整的資料進行填充，解決欄位不全問題。
+     * - [功能修正] 允許已刪除狀態的行程顯示並使用 "複製" 功能。
+     * - [功能修正] 修正新增、修改、複製時時間欄位的預設值與代入錯誤問題。
+     * - [功能修正] 修正刪除功能，確保能正確傳遞 eventId 給後端。
+     * ==================================================================================================================
+     */
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+    body { font-family: 'Inter', 'Noto Sans TC', sans-serif; margin: 0; padding: 0; background-color: #f9fafb; color: #1f2937; }
+    .container { max-width: 1200px; margin: 20px auto; padding: 20px; background-color: white; border-radius: 0.5rem; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1), 0 2px 4px -1px rgba(0,0,0,0.06); }
+    .auth-container { display: flex; justify-content: center; align-items: flex-start; min-height: 100vh;padding-top: 5rem; }
+    .form-label { display: block; margin-bottom: 0.5rem; font-weight: 500; color: #374151; font-size: 0.875rem; }
+    .form-input, .form-select, .chat-input, .ai-context-textarea { width: 100%; padding: 0.625rem 0.75rem; border: 1px solid #d1d5db; border-radius: 0.375rem; box-shadow: inset 0 1px 2px rgba(0,0,0,0.05); transition: border-color 0.15s ease-in-out, box-shadow 0.15s ease-in-out; font-size: 0.875rem; }
+    .form-input:focus, .form-select:focus, .chat-input:focus, .ai-context-textarea:focus { outline: none; border-color: #2563eb; box-shadow: 0 0 0 0.2rem rgba(37, 99, 235, 0.25); }
+    .ai-context-textarea { min-height: 80px; }
+    .btn { padding: 0.625rem 1.25rem; border-radius: 0.375rem; font-weight: 600; cursor: pointer; transition: background-color 0.15s ease-in-out, border-color 0.15s ease-in-out, color 0.15s ease-in-out, opacity 0.15s ease-in-out; display: inline-flex; align-items: center; justify-content: center; font-size: 0.875rem; line-height: 1.25rem; text-align: center; }
+    .btn:disabled { opacity: 0.6; cursor: not-allowed; }
+    .btn-sm { padding: 0.375rem 0.75rem; font-size: 0.75rem; }
+    .btn-primary { background-color: #2563eb; color: white; border: 1px solid transparent;}
+    .btn-primary:hover:not(:disabled) { background-color: #1d4ed8; }
+    .btn-secondary { background-color: #6b7280; color: white; border: 1px solid transparent;}
+    .btn-secondary:hover:not(:disabled) { background-color: #4b5563; }
+    .btn-danger { background-color: #dc2626; color: white; border: 1px solid transparent;}
+    .btn-danger:hover:not(:disabled) { background-color: #b91c1c; }
+    .btn-warning { background-color: #f59e0b; color: #1f2937; border: 1px solid transparent;}
+    .btn-warning:hover:not(:disabled) { background-color: #d97706; }
+    .btn-purple { background-color: #8b5cf6; color: white; } 
+    .btn-purple:hover:not(:disabled) { background-color: #7c3aed; }
+    .btn-green { background-color: #10b981; color: white; } 
+    .btn-green:hover:not(:disabled) { background-color: #059669; }
+    .btn-orange { background-color: #f97316; color: white; }
+    .btn-orange:hover:not(:disabled) { background-color: #ea580c; }
+    #resultsTable th, #resultsTable td { padding: 0.75rem; text-align: left; border-bottom: 1px solid #e5e7eb; font-size: 0.875rem; }
+    #resultsTable th { background-color: #f3f4f6; font-weight: 600; color: #4b5563; text-transform: uppercase; letter-spacing: 0.05em; }
+    .event-cancelled { background-color: #fee2e2 !important; color: #991b1b; }
+    .event-cancelled td { font-style: italic; text-decoration: line-through; }
+    .loading-spinner { border: 4px solid #f3f4f6; border-top: 4px solid #3b82f6; border-radius: 50%; width: 24px; height: 24px; animation: spin 1s linear infinite; margin: 10px auto; }
+    @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+    #authSection { text-align: center; background-color: white; padding: 2rem; border-radius: 0.5rem; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1), 0 2px 4px -1px rgba(0,0,0,0.06); width: 100%; max-width: 500px; }
+    #appSection { display: none; }
+    .modal { display: none; position: fixed; z-index: 1000; left: 0; top: 0; width: 100%; height: 100%; overflow: auto; background-color: rgba(0,0,0,0.5); backdrop-filter: blur(4px); }
+    .modal-content { background-color: #ffffff; margin: 5vh auto; padding: 20px 25px; border: 1px solid #d1d5db; width: 95%; max-width: 850px; border-radius: 0.5rem; box-shadow: 0 10px 15px -3px rgba(0,0,0,0.1), 0 4px 6px -2px rgba(0,0,0,0.05); position: relative; }
+    .modal-header { display: flex; justify-content: space-between; align-items: center; padding-bottom: 0.75rem; border-bottom: 1px solid #e5e7eb; margin-bottom: 1rem; }
+    .modal-title { font-size: 1.25rem; font-weight: 600; color: #111827; }
+    .close-button { color: #9ca3af; background: transparent; border: none; font-size: 1.75rem; font-weight: bold; cursor: pointer; padding: 0.25rem;}
+    .close-button:hover { color: #374151; }
+    #modalBody .detail-item { display: grid; grid-template-columns: 120px 1fr; gap: 0.5rem; padding: 0.5rem 0; border-bottom: 1px solid #f3f4f6; font-size: 0.875rem;}
+    #modalBody .detail-item:last-child { border-bottom: none; }
+    #modalBody .detail-key { font-weight: 500; color: #4b5563; text-align: right; padding-right: 1rem; }
+    #modalBody .detail-value { color: #1f2937; word-break: break-word; white-space: pre-wrap; }
+    #aiToolbox { margin-top: 1.5rem; padding-top: 1rem; border-top: 1px solid #e5e7eb; }
+    #aiGeneratedOutputArea { margin-top: 1rem; padding: 0.75rem; background-color: #f3e8ff; border-radius: 0.375rem; border: 1px solid #d8b4fe; min-height: 100px; white-space: pre-wrap; font-size: 0.875rem; }
+    #aiChatbotSection { border: 1px solid #e5e7eb; border-radius: 0.5rem; padding: 1rem; margin-top: 2rem; background-color: #f9fafb; }
+    #chatDisplay { height: 300px; overflow-y: auto; border: 1px solid #d1d5db; border-radius: 0.375rem; padding: 0.75rem; margin-bottom: 0.75rem; background-color: white; font-size: 0.875rem; }
+    .chat-message { margin-bottom: 0.5rem; padding: 0.5rem 0.75rem; border-radius: 0.5rem; max-width: 85%; line-height: 1.5; word-wrap: break-word; }
+    .user-message { background-color: #dbeafe; color: #1e40af; margin-left: auto; text-align: left; }
+    .ai-message { background-color: #e5e7eb; color: #1f2937; margin-right: auto; text-align: left; }
+    .chat-input-container { display: flex; gap: 0.5rem; }
+    .chat-input { flex-grow: 1; }
+    details > summary { list-style: none; } 
+    details > summary::-webkit-details-marker { display: none; } 
+    .form-group { margin-bottom: 1rem; }
+    .form-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 1rem; margin-bottom: 0.5rem; }
+    .tag-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem; }
+    .other-tag-input { margin-top: 0.5rem; }
+    .required-asterisk { color: #ef4444; margin-left: 2px; }
+    .error-message { color: #ef4444; font-size: 0.75rem; margin-top: 0.25rem; }
+    input.is-invalid, select.is-invalid, textarea.is-invalid { border-color: #ef4444; }
+    input.is-invalid:focus, select.is-invalid:focus, textarea.is-invalid:focus { border-color: #ef4444; box-shadow: 0 0 0 0.2rem rgba(239, 68, 68, 0.25); }
+    /* [新增] 讀者洽詢樣式 */
+    #inquirySection { margin-top: 3rem; padding-top: 2rem; border-top: 2px solid #e5e7eb; }
+    .inquiry-card { border: 1px solid #e5e7eb; padding: 1rem; border-radius: 0.5rem; margin-bottom: 1rem; background-color: white; }
+    .inquiry-processed { background-color: #f3f4f6; color: #6b7280; } /* 已回覆反灰 */
+    .inquiry-tabs { display: flex; gap: 0.5rem; margin-bottom: 1rem; }
+    .inquiry-tab { padding: 0.5rem 1rem; cursor: pointer; border-radius: 0.375rem; background-color: #e5e7eb; }
+    .inquiry-tab.active { background-color: #2563eb; color: white; }
+  </style>
+</head>
+<body>
+
+  <!-- AUTHENTICATION SECTION -->
+  <div id="authSection" class="auth-container">
+    <div>
+      <h1 class="text-2xl font-bold mb-4 text-gray-700">南市圖活動/場地管理系統</h1>
+      <div id="authMessage" class="mb-4 text-lg text-gray-600">正在驗證您的存取權限...</div>
+      <div id="authSpinner" class="loading-spinner"></div>
+      <div id="authError" class="text-red-600 font-semibold mt-2"></div>
+    </div>
+  </div>
+
+  <!-- MAIN APP SECTION -->
+  <div id="appSection" class="container">
+    <!-- Header -->
+    <div class="flex justify-between items-center mb-6 pb-4 border-b border-gray-200">
+      <div class="flex items-center">
+        <h1 class="text-3xl font-bold text-gray-800">南市圖活動/場地管理系統</h1>
+        <button type="button" id="showCreateFormButton" class="btn btn-green ml-4">＋ 新增行程</button>
+      </div>
+      <div class="flex items-center space-x-3">
+          <div id="userInfo" class="text-sm text-gray-600"></div>
+          <button type="button" id="logoutButton" class="btn btn-danger btn-sm">登出</button>
+      </div>
+    </div>
+
+    <!-- Create Flow: Type Selection -->
+    <div id="createTypeSelection" class="my-8 p-6 bg-gray-50 rounded-lg shadow" style="display: none;">
+        <h2 class="text-xl font-semibold text-gray-700 mb-4">請選擇要新增的行程類型</h2>
+        <div class="flex flex-wrap gap-4 justify-center">
+            <button type="button" id="createActivityBtn" class="btn btn-primary" disabled>新增推廣組活動/場租</button>
+            <button type="button" id="createMeetingBtn" class="btn btn-secondary" disabled>登記會議行程</button>
+            <button type="button" id="createExhibitionBtn" class="btn btn-purple" disabled>新增展覽/書展/影展</button>
+        </div>
+        <div id="initialLoadingMessage" class="text-center text-gray-500 mt-3 flex items-center justify-center">
+            <div class="loading-spinner !w-5 !h-5 mr-2"></div>
+            <span>初始化資料載入中，請稍候...</span>
+        </div>
+        <div class="text-center mt-4">
+            <button type="button" id="cancelCreateSelectionBtn" class="btn btn-danger">取消新增</button>
+        </div>
+    </div>
+
+    <!-- Create/Edit/Clone Form Container -->
+    <div id="mainFormContainer" class="my-8" style="display: none;"></div>
+
+    <!-- Search and Results Container -->
+    <div id="searchAndResultsContainer">
+        <!-- AI Search Section -->
+        <div id="aiSearchSection" class="mb-8 p-6 bg-gradient-to-r from-indigo-50 via-purple-50 to-pink-50 rounded-lg shadow-md" style="display: none;">
+          <label for="aiQuery" class="form-label text-lg font-semibold text-gray-800">AI 智慧搜尋</label>
+          <p class="text-sm text-gray-600 mb-3">您可以直接輸入句子，例如：「下週的電腦課程」或「陳老師主講的講座」</p>
+          <div class="flex space-x-2">
+            <input type="text" id="aiQuery" name="aiQuery" class="form-input flex-grow" placeholder="請在這裡輸入您的問題...">
+            <button type="button" id="aiSearchButton" class="btn btn-primary">AI 搜尋</button>
+          </div>
+          <div id="aiSearchSpinner" class="loading-spinner" style="display: none;"></div>
+          <div id="aiSearchMessageArea" class="mt-2 text-center text-sm"></div>
+        </div>
+        
+        <!-- Simple Search Section -->
+        <div class="mb-8 p-6 bg-gray-50 rounded-lg shadow">
+            <h2 class="text-xl font-semibold text-gray-700 mb-4">簡易搜尋</h2>
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div><label for="simpleStartDate" class="form-label">開始日期:</label><input type="date" id="simpleStartDate" name="simpleStartDate" class="form-input"></div>
+                <div><label for="simpleEndDate" class="form-label">結束日期:</label><input type="date" id="simpleEndDate" name="simpleEndDate" class="form-input"></div>
+                <div><label for="simpleKeyword" class="form-label">關鍵字查詢:</label><input type="text" id="simpleKeyword" name="simpleKeyword" class="form-input" placeholder="活動名稱、講師、地點..."></div>
+            </div>
+            <div class="mt-6 flex justify-center"><button type="button" id="simpleSearchButton" class="btn btn-primary">簡易搜尋</button></div>
+        </div>
+
+        <!-- Advanced Search Section -->
+        <details id="advancedSearchDetails" class="mb-8">
+            <summary class="cursor-pointer text-blue-600 hover:text-blue-800 font-medium py-2 px-3 bg-gray-100 hover:bg-gray-200 rounded-md inline-flex items-center transition-colors">
+                <span id="advancedSearchToggleText">顯示進階搜尋</span>
+                <svg id="advancedSearchArrow" class="w-4 h-4 ml-2 transform transition-transform duration-200" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path></svg>
+            </summary>
+            <form id="searchForm" class="mt-4 p-6 bg-gray-50 rounded-lg shadow">
+              <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mb-6">
+                <div><label for="location" class="form-label">地點:</label><select id="location" name="location" class="form-select"><option value="">所有地點</option></select></div>
+                <div><label for="type" class="form-label">類型:</label><select id="type" name="type" class="form-select"><option value="">所有類型</option></select></div>
+                <div><label for="audience" class="form-label">對象:</label><select id="audience" name="audience" class="form-select"><option value="">所有對象</option></select></div>
+                <div><label for="status" class="form-label">狀態:</label><select id="status" name="status" class="form-select"><option value="">所有狀態</option></select></div>
+                <div><label for="visibility" class="form-label">公開/不公開:</label><select id="visibility" name="visibility" class="form-select"><option value="">全部</option></select></div>
+                <div><label for="instructor" class="form-label">講師:</label><input type="text" id="instructor" name="instructor" class="form-input" placeholder="輸入講師名稱..."></div>
+                <div><label for="organizer" class="form-label">承辦人:</label><input type="text" id="organizer" name="organizer" class="form-input" placeholder="輸入承辦人名稱..."></div>
+                <div><label for="visibility" class="form-label">公開/不公開:</label><select id="visibility" name="visibility" class="form-select"><option value="">全部</option></select></div>
+                
+                <div>
+                    <label for="cleaningRequired" class="form-label text-red-600 font-bold">需要用餐清潔:</label>
+                    <select id="cleaningRequired" name="cleaningRequired" class="form-select border-red-300">
+                        <option value="">全部</option>
+                        <option value="是">是 (需要清潔)</option>
+                        <option value="否">否</option>
+                    </select>
+                </div>
+              </div>
+              <div class="flex justify-center space-x-4">
+                <button type="button" id="advancedSearchButton" class="btn btn-primary">進階搜尋</button>
+                <button type="button" id="resetButton" class="btn btn-secondary">清除條件</button>
+              </div>
+            </form>
+        </details>
+
+        <!-- Messages and Loading Indicators -->
+        <div id="messageArea" class="mb-4 text-center font-semibold"></div>
+        <div id="loadingIndicator" class="loading-spinner" style="display: none;"></div>
+        
+        <!-- Results Table -->
+        <div id="resultsArea" class="overflow-x-auto bg-white rounded-lg shadow">
+          <table id="resultsTable" class="min-w-full divide-y divide-gray-200">
+            <thead class="bg-gray-50">
+              <tr>
+                <th scope="col" class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">序號</th>
+                <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">日期 / 展期</th>
+                <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">時間</th>
+                <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">事件名稱</th>
+                <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">地點</th>
+                <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">講師/策展人</th>
+                <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">承辦人</th>
+                <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">狀態</th>
+                <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">操作</th>
+              </tr>
+            </thead>
+            <tbody id="resultsBody" class="bg-white divide-y divide-gray-200"></tbody>
+          </table>
+        </div>
+    </div>
+
+    <!-- AI Chatbot Section -->
+    <div id="aiChatbotSection" style="display: none;">
+      <h2 class="text-xl font-semibold text-gray-700 mb-3">AI 客服問答</h2>
+      <div id="chatDisplay"><div class="chat-message ai-message">您好！請問有什麼活動資訊想了解的嗎？</div></div>
+      <div id="chatLoadingSpinnerContainer" class="flex justify-center" style="display: none;"><div class="loading-spinner"></div></div>
+      <div class="chat-input-container mt-2">
+          <input type="text" id="chatInput" class="chat-input" placeholder="在這裡輸入您的問題...">
+          <button type="button" id="sendChatButton" class="btn btn-primary">傳送</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="inquirySection" style="display: none;">
+        <h2 class="text-2xl font-bold text-gray-800 mb-4">讀者洽詢專區</h2>
+        
+        <div id="inquirySubmitForm" class="bg-orange-50 p-6 rounded-lg shadow mb-8" style="display: none;">
+            <h3 class="text-lg font-semibold text-orange-800 mb-4">新增洽詢問題</h3>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                <div>
+                    <label class="form-label">來源</label>
+                    <select id="inqSource" class="form-select">
+                        <option value="臨櫃">臨櫃</option>
+                        <option value="電話">電話</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="form-label">填單人</label>
+                    <input type="text" id="inqSubmitter" class="form-input" placeholder="請輸入填單館員姓名">
+                </div>
+                
+                <div><label class="form-label">讀者姓名</label><input type="text" id="inqName" class="form-input"></div>
+                <div><label class="form-label">連絡電話</label><input type="text" id="inqPhone" class="form-input"></div>
+                
+                <div class="md:col-span-2"><label class="form-label">問題內容</label><textarea id="inqContent" class="form-input" rows="3"></textarea></div>
+            </div>
+            <button type="button" class="btn btn-orange" onclick="submitInquiry()">提交問題</button>
+        </div>
+
+        <div id="inquiryListSection" style="display: none;">
+            <div class="bg-gray-100 p-4 rounded-md mb-4 flex flex-col md:flex-row gap-2">
+                <input type="text" id="inqSearchKeyword" class="form-input flex-grow" placeholder="輸入姓名、電話或關鍵字查詢...">
+                <button class="btn btn-primary whitespace-nowrap" onclick="handleInquirySearch()">查詢</button>
+            </div>
+
+            <div class="flex justify-between items-center mb-4">
+                <div class="inquiry-tabs">
+                    <div class="inquiry-tab active" onclick="switchInquiryTab('unprocessed')">未處理</div>
+                    <div class="inquiry-tab" onclick="switchInquiryTab('processed')">已處理</div>
+                    <div class="inquiry-tab" onclick="switchInquiryTab('all')">所有問題</div>
+                </div>
+                <button class="btn btn-sm btn-secondary" onclick="handleInquirySearch()">重新整理</button>
+            </div>
+            <div id="inquiryListLoading" class="loading-spinner" style="display: none;"></div>
+            <div id="inquiryListContainer" class="space-y-4"></div>
+        </div>
+    </div>
+
+  <!-- Details Modal -->
+  <div id="detailsModal" class="modal">
+    <div class="modal-content">
+      <div id="detailsView" style="display: none;">
+        <div class="modal-header">
+            <h2 id="modalTitle" class="modal-title">事件詳細資訊</h2>
+            <div class="flex items-center space-x-2">
+              <div id="modalLoadingSpinner" class="loading-spinner !w-5 !h-5 !m-0" style="display: none;"></div>
+              <button type="button" id="switchToCloneModeButton" class="btn btn-sm btn-purple mr-2">📄 複製</button>
+              <button type="button" id="switchToEditModeButton" class="btn btn-sm btn-warning">✏️ 修改</button>
+              <button type="button" class="close-button" onclick="closeModal()">&times;</button>
+            </div>
+        </div>
+        <div id="modalBody" class="space-y-1 py-2 max-h-[65vh] overflow-y-auto">
+            <!-- AI Toolbox will be inserted here by JS -->
+        </div>
+      </div>
+    </div>
+  </div>
+  
+  <!-- Post Action Modal -->
+  <div id="postActionModal" class="modal">
+    <div class="modal-content" style="max-width: 600px;">
+        <div class="modal-header">
+            <h5 class="modal-title" id="postActionModalLabel">操作成功！後續步驟提醒</h5>
+            <button type="button" class="close-button" onclick="closePostActionModal()">&times;</button>
+        </div>
+        <div class="modal-body" id="postActionModalBody"></div>
+        <div class="modal-footer">
+            <button type="button" class="btn btn-secondary" onclick="closePostActionModal()">關閉</button>
+        </div>
+    </div>
+  </div>
+
+  <div id="editInquiryModal" class="modal">
+    <div class="modal-content" style="max-width: 600px;">
+        <div class="modal-header">
+            <h5 class="modal-title font-bold text-lg text-gray-800">修改洽詢內容</h5>
+            <button type="button" class="close-button" onclick="closeEditInquiryModal()">&times;</button>
+        </div>
+        <div class="modal-body p-4">
+            <input type="hidden" id="editRowIndex">
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                <div>
+                    <label class="form-label">來源</label>
+                    <select id="editInqSource" class="form-select">
+                        <option value="臨櫃">臨櫃</option>
+                        <option value="電話">電話</option>
+                    </select>
+                </div>
+                <div><label class="form-label">讀者姓名</label><input type="text" id="editInqName" class="form-input"></div>
+                <div><label class="form-label">連絡電話</label><input type="text" id="editInqPhone" class="form-input"></div>
+                <div class="md:col-span-2"><label class="form-label">問題內容</label><textarea id="editInqContent" class="form-input" rows="3"></textarea></div>
+            </div>
+        </div>
+        <div class="modal-footer mt-4 flex justify-end gap-2 p-4 border-t border-gray-100">
+            <button type="button" class="btn btn-secondary" onclick="closeEditInquiryModal()">取消</button>
+            <button type="button" class="btn btn-primary" onclick="submitInquiryEdit()">儲存修改</button>
+        </div>
+    </div>
+  </div>
+
+  <script>
+    // ===============================================================
+    // --- 1. 全域變數與常數 (Global Variables & Constants) ---
+    // ===============================================================
+    const SESSION_STORAGE_KEY = 'activitySearchSessionId_v11.1';
+    const CANCELLED_STATUS_TEXT = "行事曆已刪除";
+    const OTHER_VALUE = "_OTHER_";
+    const MAX_TAGS = 8;
+    const timeOptions = [];
+    let initialDataCache = null;
+    let currentEventObject = null;
+    let currentUserRole = null;
+    let visibleTagCount = { main: 1 };
+    // --- [新增] 通訊錄全域變數 ---
+let globalContactList = {};
+// [新增] 讀者洽詢變數
+    let allInquiries = []; 
+    let currentInquiryTab = 'unprocessed';
+    let currentUserName = ''; // [新增] 用來預設承辦人姓名
+
+    const COL = {
+  STATUS: 0, DATE: 1, START_TIME: 2, END_TIME: 3, EVENT_NAME: 4, INSTRUCTOR: 5, LOCATION: 6,
+  REGISTRATION_PERIOD: 7, FEE: 8, TYPE: 9, AUDIENCE: 10, VOLUNTEER_COUNT: 11, REMARKS: 12,
+  REGISTRATION_COUNT: 13, ORGANIZER: 14, VISIBILITY: 15, TAG_Q: 16, TAG_R: 17, TAG_S: 18,
+  TAG_T: 19, TAG_U: 20, TAG_V: 21, TAG_W: 22, TAG_X: 23, CALENDAR_ID1: 24, CALENDAR_ID2: 25,
+  CLEANING_REQUIRED: 26,
+  EVENT_URL: 27 // [新增]
+};
+
+    // ===============================================================
+    // --- 2. 初始化與事件監聽 (Initialization & Event Listeners) ---
+    // ===============================================================
+    document.addEventListener('DOMContentLoaded', function() {
+      document.getElementById('logoutButton').addEventListener('click', handleLogout);
+      document.getElementById('showCreateFormButton').addEventListener('click', handleShowCreateFlow);
+      document.getElementById('simpleSearchButton').addEventListener('click', handleSimpleSearch);
+      document.getElementById('advancedSearchButton').addEventListener('click', executeSearch);
+      document.getElementById('resetButton').addEventListener('click', handleReset);
+      document.getElementById('aiSearchButton').addEventListener('click', handleNaturalLanguageSearch);
+      document.getElementById('sendChatButton').addEventListener('click', handleSendChatMessage);
+      document.getElementById('chatInput').addEventListener('keypress', e => { if (e.key === 'Enter') handleSendChatMessage(); });
+      document.getElementById('switchToEditModeButton').addEventListener('click', handleSwitchToEditMode);
+      document.getElementById('switchToCloneModeButton').addEventListener('click', handleSwitchToCloneMode);
+      document.getElementById('createActivityBtn').addEventListener('click', () => showMainForm('activity'));
+      document.getElementById('createMeetingBtn').addEventListener('click', () => showMainForm('meeting'));
+      document.getElementById('createExhibitionBtn').addEventListener('click', () => showMainForm('exhibition'));
+      document.getElementById('cancelCreateSelectionBtn').addEventListener('click', hideMainForm);
+
+      document.getElementById('advancedSearchDetails').addEventListener('toggle', function() {
+        const toggleText = document.getElementById('advancedSearchToggleText');
+        const arrow = document.getElementById('advancedSearchArrow');
+        if (this.open) {
+          toggleText.textContent = '隱藏進階搜尋';
+          arrow.classList.add('rotate-180');
+        } else {
+          toggleText.textContent = '顯示進階搜尋';
+          arrow.classList.remove('rotate-180');
+        }
+      });
+      initializeApp();
+    });
+
+    // ===============================================================
+    // --- 3. 訊息與讀取狀態控制 (Messaging & Loading State) ---
+    // ===============================================================
+    function showGeneralMessage(message, isError = false, areaId = 'messageArea') {
+        const messageArea = document.getElementById(areaId);
+        if (messageArea) {
+            messageArea.textContent = message || '\u00A0';
+            messageArea.className = isError 
+                ? 'mb-2 text-center text-red-600 font-semibold text-sm' 
+                : 'mb-2 text-center text-green-600 font-semibold text-sm';
+        }
+    }
+    function showSimpleOrAdvancedSearchLoading(isLoading) {
+      document.getElementById('loadingIndicator').style.display = isLoading ? 'block' : 'none';
+      document.getElementById('simpleSearchButton').disabled = isLoading;
+      document.getElementById('advancedSearchButton').disabled = isLoading;
+      document.getElementById('resetButton').disabled = isLoading;
+    }
+    function showMainFormLoading(isLoading, message = '處理中...') {
+        const spinner = document.getElementById('mainFormSpinner');
+        const msgArea = document.getElementById('mainFormMessageArea');
+        const submitBtn = document.getElementById('mainSubmitButton');
+        const deleteBtn = document.getElementById('mainDeleteButton');
+        const backBtn = document.getElementById('mainBackButton');
+        const clearBtn = document.getElementById('mainClearButton');
+
+        if (spinner) spinner.style.display = isLoading ? 'block' : 'none';
+        if (msgArea) {
+            msgArea.style.display = isLoading ? 'block' : 'none';
+            if (isLoading) {
+                msgArea.textContent = message;
+                msgArea.className = 'mt-3 p-2 rounded-md text-center text-blue-600 bg-blue-100';
+            }
+        }
+        if (submitBtn) submitBtn.disabled = isLoading;
+        if (deleteBtn) deleteBtn.disabled = isLoading;
+        if (backBtn) backBtn.disabled = isLoading;
+        if (clearBtn) clearBtn.disabled = isLoading;
+    }
+    function showMainFormMessage(message, isError = false) {
+        const msgArea = document.getElementById('mainFormMessageArea');
+        if (!msgArea) return;
+        msgArea.textContent = message;
+        msgArea.className = isError 
+            ? 'mt-3 p-2 rounded-md text-center text-red-700 bg-red-100 font-semibold' 
+            : 'mt-3 p-2 rounded-md text-center text-green-700 bg-green-100 font-semibold';
+        msgArea.style.display = 'block';
+    }
+    
+    // ===============================================================
+    // --- 4. 驗證與授權 (Authentication & Authorization) ---
+    // ===============================================================
+    function initializeApp() {
+        showAuthView("正在驗證您的存取權限...", true);
+        initializeTimeOptions();
+        google.script.run
+            .withSuccessHandler(response => {
+                if (response && response.authenticated) {
+                    localStorage.setItem(SESSION_STORAGE_KEY, response.sessionId);
+                    currentUserRole = response.userRole;
+                    showAppView(response.username, response.userRole);
+                    loadInitialData();
+                    initInquirySystem(response.userRole);
+                } else {
+                    handleAuthError(response ? response.error : "您的帳戶未被授權。");
+                }
+            })
+            .withFailureHandler(error => handleAuthError("與伺服器連線時發生錯誤: " + error.message))
+            .checkUserAndGetSession();
+    }
+    function handleLogout() {
+      const sessionId = localStorage.getItem(SESSION_STORAGE_KEY);
+      if (sessionId) google.script.run.doLogout(sessionId);
+      localStorage.removeItem(SESSION_STORAGE_KEY);
+      currentUserRole = null;
+      google.script.run.withSuccessHandler(function(logoutUrl) {
+          showAuthView("您即將被登出...", true);
+          window.top.location.href = logoutUrl;
+      }).getLogoutUrl();
+    }
+    function showAppView(username, userRole) {
+      currentUserName = username; // [新增] 儲存當前使用者名稱
+      document.body.classList.remove('auth-container'); 
+      document.getElementById('authSection').style.display = 'none';
+      document.getElementById('appSection').style.display = 'block';
+      document.getElementById('userInfo').textContent = `使用者: ${username} (角色: ${userRole || '未知'})`;
+      const today = new Date();
+      const todayString = `${today.getFullYear()}-${('0' + (today.getMonth() + 1)).slice(-2)}-${('0' + today.getDate()).slice(-2)}`;
+      document.getElementById('simpleStartDate').value = todayString; 
+      document.getElementById('simpleEndDate').value = todayString;
+      applyRoleBasedUI(userRole);
+    }
+    function applyRoleBasedUI(role) {
+      const canSeeAiFeatures = (role === 'AI用戶' || role === '管理員');
+      document.getElementById('aiSearchSection').style.display = canSeeAiFeatures ? 'block' : 'none';
+      document.getElementById('aiChatbotSection').style.display = canSeeAiFeatures ? 'block' : 'none';
+      const canCreate = (role !== '委外櫃台');
+      document.getElementById('showCreateFormButton').style.display = canCreate ? 'inline-flex' : 'none';
+    }
+    function showAuthView(message, showSpinner) {
+      document.body.classList.add('auth-container'); 
+      document.getElementById('authSection').style.display = 'flex'; 
+      document.getElementById('appSection').style.display = 'none';
+      document.getElementById('authMessage').textContent = message;
+      document.getElementById('authSpinner').style.display = showSpinner ? 'block' : 'none';
+    }
+    function handleAuthError(errorMessage = "Session 無效或已過期。") {
+      localStorage.removeItem(SESSION_STORAGE_KEY);
+      currentUserRole = null;
+      showAuthView("連線階段已過期或未授權", false);
+      document.getElementById('authError').textContent = errorMessage + " 請重新整理頁面以再次嘗試登入。";
+    }
+
+    // ===============================================================
+    // --- 5. Modal 與核心流程控制 (Modals & Core Flow Control) ---
+    // ===============================================================
+    function closeModal() {
+        document.getElementById('detailsModal').style.display = 'none';
+    }
+    window.onclick = function(event) {
+        const modals = ['detailsModal', 'postActionModal'];
+        modals.forEach(id => {
+            if (event.target == document.getElementById(id)) {
+                document.getElementById(id).style.display = 'none';
+            }
+        });
+    }
+    function showPostActionModal(notification) {
+        const modalBody = document.getElementById('postActionModalBody');
+        if (!modalBody) return;
+        const rentalSystemUrl = "https://www.tnpl.tn.edu.tw/Page/VenueRental.aspx";
+        const backendUrl = "http://163.26.71.117/login.aspx";
+        let message = '';
+        let buttonsHtml = '';
+        const highlightVolunteer = (text) => text.replace(/提醒志工夥伴/g, '<strong class="text-blue-600">提醒志工夥伴</strong>');
+        const messages = {
+            CREATE: {
+                RENTAL: `<strong class="text-red-600">新增提醒：</strong>請至「南市圖入口網後台」建立報名資訊，並${highlightVolunteer('提醒志工夥伴')}。`,
+                NORMAL: `<strong class="text-red-600">新增提醒：</strong>請至「南市圖入口網後台」建立報名資訊。`
+            },
+            UPDATE: {
+                RENTAL: `<strong class="text-red-600">修改提醒：</strong>請至「南市圖入口網後台」修改對應的報名資訊，並${highlightVolunteer('提醒志工夥伴相關更正')}。`,
+                NORMAL: `<strong class="text-red-600">修改提醒：</strong>請至「南市圖入口網後台」修改報名資訊，並${highlightVolunteer('提醒志工夥伴相關更正')}。`
+            },
+            DELETE: {
+                RENTAL: `<strong class="text-red-600">刪除提醒：</strong>請至「南市圖入口網後台」刪除該項報名資訊，並${highlightVolunteer('提醒志工夥伴不必前來值勤')}。`,
+                NORMAL: `<strong class="text-red-600">刪除提醒：</strong>請至「南市圖入口網後台」刪除該項報名資訊，並${highlightVolunteer('提醒志工夥伴不必前來值勤')}。`
+            }
+        };
+
+        if (notification.type === 'RENTAL') {
+            message = `<p><strong class="text-blue-600">此場地為官網可租借場地</strong>，請記得至以下系統完成登記或修改。</p><p>${messages[notification.action]['RENTAL']}</p>`;
+            buttonsHtml = `<div class="mt-4 flex space-x-3"><a href="${rentalSystemUrl}" target="_blank" class="btn btn-green">前往官網場地系統</a><a href="${backendUrl}" target="_blank" class="btn btn-primary">前往入口網後台</a></div>`;
+        } else {
+            message = `<p>此為一般場地行程，如有報名需求，請至入口網後台處理。</p><p>${messages[notification.action]['NORMAL']}</p>`;
+            buttonsHtml = `<div class="mt-4"><a href="${backendUrl}" target="_blank" class="btn btn-primary">前往入口網後台</a></div>`;
+        }
+        modalBody.innerHTML = message + buttonsHtml;
+        document.getElementById('postActionModal').style.display = 'block';
+    }
+    function closePostActionModal() {
+        document.getElementById('postActionModal').style.display = 'none';
+    }
+    function showDetailsModal(eventData) {
+        currentEventObject = eventData;
+        closeModal(); 
+        document.getElementById('detailsView').style.display = 'block';
+        
+        const modalBody = document.getElementById('modalBody');
+        modalBody.innerHTML = ''; 
+        
+        const canModify = eventData.calendarEventId && (currentUserRole !== '委外櫃台');
+        const canClone = currentUserRole !== '委外櫃台';
+        const canCloneDeleted = eventData.status === CANCELLED_STATUS_TEXT;
+        const canUseAiTools = (currentUserRole === 'AI用戶' || currentUserRole === '管理員');
+        
+        document.getElementById('switchToCloneModeButton').style.display = (canClone || canCloneDeleted) ? 'inline-flex' : 'none';
+        document.getElementById('switchToEditModeButton').style.display = canModify ? 'inline-flex' : 'none';
+        
+        document.getElementById('modalTitle').textContent = eventData.eventName || '事件詳細資訊';
+        
+        const createDetailItem = (key, value) => {
+            if (value === null || value === undefined || value === '') return;
+            const item = document.createElement('div');
+            item.className = 'detail-item';
+            item.innerHTML = `<span class="detail-key">${key}:</span><span class="detail-value">${String(value).replace(/\n/g, '<br>')}</span>`;
+            modalBody.appendChild(item);
+        };
+
+        createDetailItem('狀態', eventData.status);
+        createDetailItem(eventData.dataType === 'activity' ? '日期' : '展覽期間', eventData.displayDate);
+        if(eventData.dataType === 'activity') createDetailItem('時間', eventData.displayTime);
+        createDetailItem(eventData.dataType === 'activity' ? '活動名稱' : '展覽名稱', eventData.eventName);
+        createDetailItem('地點', eventData.location);
+        createDetailItem(eventData.dataType === 'activity' ? '講師/主持人' : '策展人/單位', eventData.instructor);
+        createDetailItem('承辦人', eventData.organizer);
+        // [新增] 顯示是否用餐 (建議加在承辦人附近或詳細資訊區塊)
+        // [新增] 詳情顯示「是否用餐」
+        if (eventData.raw) {
+            // 注意：COL.CLEANING_REQUIRED 是 26
+            const cleaningVal = eventData.raw[26] || '否';
+            const cleaningDisplay = cleaningVal === '是' 
+                ? '<span class="text-red-600 font-bold">是 (需要清潔)</span>' 
+                : '否';
+                
+            // 手動加入 DOM，因為 createDetailItem 會 escape HTML
+            modalBody.innerHTML += `<div class="detail-item"><span class="detail-key">是否用餐:</span><span class="detail-value">${cleaningDisplay}</span></div>`;
+        }
+        createDetailItem('是否用餐', eventData.raw ? eventData.raw[COL.CLEANING_REQUIRED] : '');
+        if(eventData.raw) {
+          createDetailItem('類型', eventData.raw[COL.TYPE]);
+          createDetailItem('對象', eventData.raw[COL.AUDIENCE]);
+          createDetailItem('導覽機公開', eventData.raw[COL.VISIBILITY]);
+          createDetailItem('報名期間', eventData.raw[COL.REGISTRATION_PERIOD]);
+          createDetailItem('報名名額', eventData.raw[COL.REGISTRATION_COUNT]);
+          createDetailItem('費用', eventData.raw[COL.FEE]);
+          // [修改] 詳細資料中的連結 - 改為直接顯示網址
+        const urlVal = eventData.raw ? eventData.raw[COL.EVENT_URL] : '';
+        if (urlVal) {
+             const item = document.createElement('div');
+             item.className = 'detail-item'; 
+             
+             // [修改重點] <a>標籤中間的文字從 "點擊前往" 改為 ${urlVal}
+             // class 中保留 break-all 以防止網址太長撐破版面
+             item.innerHTML = `<span class="detail-key">活動網址:</span><span class="detail-value"><a href="${urlVal}" target="_blank" class="text-blue-600 hover:underline break-all">${urlVal}</a></span>`;
+             
+             modalBody.appendChild(item);
+        }
+          createDetailItem('志工人數', eventData.raw[COL.VOLUNTEER_COUNT]);
+          for (let i = COL.TAGS_START; i <= COL.TAGS_END; i++) {
+              createDetailItem(`標籤 #${i - COL.TAGS_START + 1}`, eventData.raw[i]);
+          }
+          createDetailItem('備註', eventData.raw[COL.REMARKS]);
+        }
+        
+        if (canUseAiTools) {
+          const aiToolboxHtml = `
+            <div id="aiToolbox" class="mt-4 pt-4 border-t border-gray-200">
+              <h3 class="text-lg font-semibold text-gray-700 mb-2">AI 輔助工具</h3>
+              <label for="aiAdditionalContextInput" class="form-label text-sm">補充資訊或特別指示 (選填):</label>
+              <textarea id="aiAdditionalContextInput" class="ai-context-textarea mb-3" placeholder="例如：希望強調親子互動、限國小生，風格活潑"></textarea>
+              <div class="flex flex-wrap gap-2 mb-3">
+                  <button type="button" id="generateAiSummaryButton" class="btn btn-sm btn-purple">✨ 產生摘要/亮點</button>
+                  <button type="button" id="generateEventPromotionButton" class="btn btn-sm btn-green">✨ 產生宣傳文案</button>
+                  <button type="button" id="generateEventRecapButton" class="btn btn-sm btn-orange">✨ 產生活動花絮</button>
+              </div>
+              <div id="aiToolboxSpinner" class="loading-spinner !w-5 !h-5" style="display: none; margin: 5px 0;"></div>
+              <div id="aiGeneratedOutputArea" style="display: none;">
+                  <h4 id="aiGeneratedOutputTitle" class="font-semibold text-gray-700 mb-1 text-sm">AI 生成結果：</h4>
+                  <div id="aiGeneratedOutputText" class="text-sm text-gray-800 bg-gray-100 p-3 rounded-md whitespace-pre-wrap border border-gray-300"></div>
+              </div>
+              <div id="aiToolboxError" class="text-xs text-red-500 mt-1"></div>
+            </div>`;
+          modalBody.insertAdjacentHTML('beforeend', aiToolboxHtml);
+          document.getElementById('generateAiSummaryButton').addEventListener('click', () => handleAiToolboxAction('summary'));
+          document.getElementById('generateEventPromotionButton').addEventListener('click', () => handleAiToolboxAction('promotion'));
+          document.getElementById('generateEventRecapButton').addEventListener('click', () => handleAiToolboxAction('recap'));
+        }
+        
+        document.getElementById('detailsModal').style.display = 'block';
+    }
+    function handleSwitchToEditMode() {
+        if (!currentEventObject || !currentEventObject.calendarEventId) {
+            alert("此筆資料缺少活動 ID，無法進行修改。");
+            return;
+        }
+        loadDataForMainForm('EDIT');
+    }
+    function handleSwitchToCloneMode() {
+        if (!currentEventObject) {
+            alert("請先選擇一個要複製的活動。");
+            return;
+        }
+        loadDataForMainForm('CLONE');
+    }
+    function handleShowCreateFlow() {
+        document.getElementById('searchAndResultsContainer').style.display = 'none';
+        document.getElementById('mainFormContainer').style.display = 'none';
+        document.getElementById('createTypeSelection').style.display = 'block';
+    }
+    function hideMainForm() {
+        document.getElementById('mainFormContainer').innerHTML = '';
+        document.getElementById('mainFormContainer').style.display = 'none';
+        document.getElementById('createTypeSelection').style.display = 'none';
+        document.getElementById('searchAndResultsContainer').style.display = 'block';
+    }
+    function showMainForm(formType) {
+        document.getElementById('createTypeSelection').style.display = 'none';
+        const formHtml = generateFormHtml('main', formType);
+        const container = document.getElementById('mainFormContainer');
+        container.innerHTML = formHtml;
+        container.style.display = 'block';
+        populateForm('main', 'CREATE', { formType: formType });
+    }
+    function loadDataForMainForm(mode) {
+        const spinner = document.getElementById('modalLoadingSpinner');
+        const editButton = document.getElementById('switchToEditModeButton');
+        const cloneButton = document.getElementById('switchToCloneModeButton');
+        spinner.style.display = 'block';
+        editButton.disabled = true;
+        cloneButton.disabled = true;
+
+        const sessionId = localStorage.getItem(SESSION_STORAGE_KEY);
+        const eventIdentifier = {
+            rowIndex: currentEventObject.rowIndex,
+            calendarEventId: currentEventObject.calendarEventId
+        };
+
+        google.script.run
+            .withSuccessHandler(response => {
+                spinner.style.display = 'none';
+                editButton.disabled = false;
+                cloneButton.disabled = false;
+                closeModal();
+                if (response.error) {
+                    alert(`載入資料失敗: ${response.error}`);
+                } else {
+                    const formType = response.formType;
+                    const formHtml = generateFormHtml('main', formType);
+                    const container = document.getElementById('mainFormContainer');
+                    container.innerHTML = formHtml;
+                    container.style.display = 'block';
+                    document.getElementById('searchAndResultsContainer').style.display = 'none';
+                    populateForm('main', mode, response);
+                }
+            })
+            .withFailureHandler(error => {
+                alert(`載入資料時發生網路錯誤: ${error.message}`);
+                spinner.style.display = 'none';
+                editButton.disabled = false;
+                cloneButton.disabled = false;
+            })
+            .getAnyEventDataForEdit(sessionId, eventIdentifier);
+    }
+
+    // ===============================================================
+    // --- 6. 表單生成與填充 (Form Generation & Population) ---
+    // ===============================================================
+    
+    function generateFormHtml(prefix, formType) {
+        const isExhibition = formType === 'exhibition';
+        const isMeeting = formType === 'meeting';
+        
+        // [新增] 準備組別選項 HTML
+        // 讀取全域變數 globalContactList
+        let groupOptionsHtml = '<option value="">選擇組別...</option>';
+        if (typeof globalContactList !== 'undefined') {
+            Object.keys(globalContactList).forEach(group => {
+                groupOptionsHtml += `<option value="${group}">${group}</option>`;
+            });
+        }
+
+        // [新增] 邀請通知介面 HTML
+        const inviteeSectionHtml = `
+            <div class="form-group border-t border-gray-200 pt-4 mt-2 bg-gray-50 p-3 rounded-md">
+                <label class="form-label font-bold text-gray-700">邀請通知 (Email)</label>
+                <div class="text-xs text-gray-500 mb-2">可從下拉選單選擇或直接輸入，送出後將自動發送 Email 通知。</div>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-2 mb-2">
+                    <select id="${prefix}_inviteeGroup" class="form-select" onchange="updatePersonOptions('${prefix}')">
+                        ${groupOptionsHtml}
+                    </select>
+                    <select id="${prefix}_inviteePerson" class="form-select" onchange="fillInviteeInputs('${prefix}')">
+                        <option value="">選擇人員...</option>
+                    </select>
+                </div>
+                <div class="flex gap-2 mb-2">
+                    <input type="text" id="${prefix}_inviteeName" class="form-input w-1/3" placeholder="姓名">
+                    <input type="text" id="${prefix}_inviteeEmail" class="form-input w-2/3" placeholder="Email">
+                    <button type="button" class="btn btn-sm btn-primary whitespace-nowrap px-4" onclick="addInvitee('${prefix}')">加入</button>
+                </div>
+                <div id="${prefix}_inviteeList" class="flex flex-wrap items-start content-start p-2 bg-white rounded-md border border-gray-300 min-h-[44px]"></div>
+                <input type="hidden" id="${prefix}_invitees" value="[]">
+            </div>
+        `;
+
+        const mealRequiredHtml = `
+            <div class="form-group">
+                <label for="${prefix}_cleaningRequired" class="form-label">是否用餐</label>
+                <select class="form-select" id="${prefix}_cleaningRequired">
+                    <option value="否" selected>否</option>
+                    <option value="是">是</option>
+                </select>
+            </div>`;
+
+        const urlFieldHtml = `
+            <div class="form-group">
+                <label for="${prefix}_url" class="form-label">活動/報名網址</label>
+                <input type="text" class="form-input" id="${prefix}_url" placeholder="https://...">
+            </div>`;
+
+        const dateFieldsHtml = `
+            <div class="form-group">
+                <label for="${prefix}_startDate" class="form-label">${isExhibition ? '開始日期' : '日期'}<span class="required-asterisk">*</span></label>
+                <input type="date" class="form-input" id="${prefix}_startDate" required>
+            </div>
+            <div class="form-group" style="display: ${isExhibition ? 'block' : 'none'};">
+                <label for="${prefix}_endDate" class="form-label">結束日期<span class="required-asterisk">*</span></label>
+                <input type="date" class="form-input" id="${prefix}_endDate">
+            </div>
+            <div class="form-group" style="display: ${isExhibition ? 'none' : 'block'};">
+                <label for="${prefix}_startTime" class="form-label">開始時間<span class="required-asterisk">*</span></label>
+                <select class="form-select" id="${prefix}_startTime" required onchange="updateEndTimeOptions('${prefix}')"></select>
+            </div>
+            <div class="form-group" style="display: ${isExhibition ? 'none' : 'block'};">
+                <label for="${prefix}_endTime" class="form-label">結束時間<span class="required-asterisk">*</span></label>
+                <select class="form-select" id="${prefix}_endTime" required onchange="validateForm('${prefix}')"></select>
+                <div id="${prefix}_endTimeError" class="error-message" style="display: none;">結束時間必須晚於開始時間。</div>
+            </div>
+        `;
+
+        const specificFieldsHtml = `
+            <div id="${prefix}_activityFieldsContainer" style="display: ${isMeeting ? 'none' : 'block'};">
+                <h3 class="text-md font-semibold text-gray-700 mt-4 mb-3 border-t pt-4">詳細設定</h3>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label for="${prefix}_type" class="form-label">類型<span class="required-asterisk">*</span></label>
+                        <select class="form-select" id="${prefix}_type" onchange="handleTypeChange('${prefix}')" required></select>
+                    </div>
+                    <div class="form-group">
+                        <label for="${prefix}_audience" class="form-label">對象<span class="required-asterisk">*</span></label>
+                        <select class="form-select" id="${prefix}_audience" required></select>
+                    </div>
+                    <div class="form-group">
+                        <label for="${prefix}_publicGuide" class="form-label">導覽機公開<span class="required-asterisk">*</span></label>
+                        <select class="form-select" id="${prefix}_publicGuide" required>
+                            <option value="">請選擇...</option>
+                            <option value="公開">公開</option>
+                            <option value="不公開">不公開</option>
+                        </select>
+                    </div>
+                    ${!isMeeting ? mealRequiredHtml : ''}
+                </div>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label for="${prefix}_registrants" class="form-label">報名名額</label>
+                        <input type="text" class="form-input" id="${prefix}_registrants">
+                    </div>
+                    <div class="form-group">
+                        <label for="${prefix}_registrationStartDate" class="form-label">報名期間-起</label>
+                        <input type="date" class="form-input" id="${prefix}_registrationStartDate">
+                    </div>
+                    <div class="form-group">
+                        <label for="${prefix}_registrationEndDate" class="form-label">報名期間-迄</label>
+                        <input type="date" class="form-input" id="${prefix}_registrationEndDate">
+                        <div id="${prefix}_registrationError" class="error-message" style="display: none;"></div>
+                    </div>
+                    ${urlFieldHtml}
+                </div>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label for="${prefix}_cost" class="form-label">費用</label>
+                        <input type="text" class="form-input" id="${prefix}_cost">
+                    </div>
+                    <div class="form-group">
+                        <label for="${prefix}_volunteer" class="form-label">志工人數</label>
+                        <input type="text" class="form-input" id="${prefix}_volunteer">
+                    </div>
+                </div>
+
+                ${inviteeSectionHtml}
+
+                <div class="form-group mt-3">
+                    <label class="form-label">標籤 (最多8個)</label>
+                    <div id="${prefix}_tagContainer" class="p-3 border rounded-md bg-gray-50 tag-grid"></div>
+                    <button type="button" id="${prefix}_addTagButton" class="btn btn-sm btn-secondary mt-2" onclick="addTagInput('${prefix}')">+ 新增標籤</button>
+                </div>
+            </div>
+        `;
+
+        let speakerSectionHtml = '';
+        if (isMeeting) {
+            speakerSectionHtml = `
+            <div class="form-row">
+                <div class="form-group">
+                    <label for="${prefix}_speaker" class="form-label">組別或主持人</label>
+                    <input type="text" class="form-input" id="${prefix}_speaker">
+                </div>
+                ${mealRequiredHtml}
+            </div>`;
+        } else {
+            speakerSectionHtml = `
+            <div class="form-group">
+                <label for="${prefix}_speaker" class="form-label">${isExhibition ? '策展人/單位' : '講師'}</label>
+                <input type="text" class="form-input" id="${prefix}_speaker">
+            </div>`;
+        }
+
+        const organizerAndNotesHtml = `
+            <div class="form-group">
+                <label for="main_notes" class="form-label">備註</label>
+                <textarea class="form-input" id="main_notes" rows="3"></textarea>
+            </div>
+            
+            ${isMeeting ? urlFieldHtml : ''}
+
+            <div class="form-group">
+                <label for="main_organizer" class="form-label">承辦人${isExhibition ? '<span class="required-asterisk">*</span>' : ''}</label>
+                <input type="text" class="form-input" id="main_organizer">
+            </div>
+
+            ${isMeeting ? inviteeSectionHtml : ''}
+        `;
+
+        return `
+            <form id="mainForm" novalidate class="p-4 border rounded-lg bg-white shadow-sm">
+                <h2 id="mainFormTitle" class="text-2xl font-bold text-gray-800 mb-6"></h2>
+                <input type="hidden" id="main_eventId">
+                <input type="hidden" id="main_secondEventId">
+                <input type="hidden" id="main_rowIndex">
+                <input type="hidden" id="main_formType" value="${formType}">
+
+                <div class="form-row">${dateFieldsHtml.replace(/_startDate/g, '_date')}</div>
+                
+                <div class="form-row">
+                    <div class="form-group">
+                        <label for="main_location" class="form-label">地點<span class="required-asterisk">*</span></label>
+                        <select class="form-select" id="main_location" required onchange="toggleOtherLocation('main')"></select>
+                    </div>
+                    <div class="form-group" id="main_otherLocationContainer" style="display: none;">
+                        <label for="main_otherLocation" class="form-label">請輸入其他地點<span class="required-asterisk">*</span></label>
+                        <input type="text" class="form-input" id="main_otherLocation">
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label for="main_eventName" class="form-label">${isExhibition ?
+                    '展覽名稱' : (isMeeting ? '會議名稱' : '活動名稱')}<span class="required-asterisk">*</span></label>
+                    <input type="text" class="form-input" id="main_eventName" required>
+                </div>
+
+                ${speakerSectionHtml}
+
+                ${organizerAndNotesHtml}
+
+                ${specificFieldsHtml.replace(/_type/g, '_type').replace(/_audience/g, '_audience').replace(/_publicGuide/g, '_publicGuide').replace(/_registrants/g, '_registrants').replace(/_registrationStartDate/g, '_registrationStartDate').replace(/_registrationEndDate/g, '_registrationEndDate').replace(/_registrationError/g, '_registrationError').replace(/_cost/g, '_cost').replace(/_volunteer/g, '_volunteer').replace(/_tagContainer/g, '_tagContainer').replace(/_addTagButton/g, '_addTagButton').replace(/_cleaningRequired/g, '_cleaningRequired').replace(/_url/g, '_url').replace(/_inviteeGroup/g, '_inviteeGroup').replace(/_inviteePerson/g, '_inviteePerson').replace(/_inviteeName/g, '_inviteeName').replace(/_inviteeEmail/g, '_inviteeEmail').replace(/_inviteeList/g, '_inviteeList').replace(/_invitees/g, '_invitees')}
+
+                <div id="mainFormMessageArea" class="my-4 p-2 rounded-md text-center" style="display: none;"></div>
+                <div id="mainFormSpinner" class="loading-spinner" style="display: none;"></div>
+
+                <div class="mt-6 pt-4 border-t flex justify-between items-center">
+                    <div>
+                        <button type="button" id="mainDeleteButton" class="btn btn-danger" style="display: none;">刪除此行程</button>
+                    </div>
+                    <div>
+                        <button type="button" id="mainBackButton" class="btn btn-secondary mr-2">返回選擇類型</button>
+                        <button type="button" id="mainClearButton" class="btn btn-warning mr-2">清除頁面資料</button>
+                        <button type="button" id="mainSubmitButton" class="btn btn-primary">送出</button>
+                    </div>
+                </div>
+            </form>
+        `;
+    }
+
+    function populateForm(prefix, mode, data = {}) {
+        const formType = data.formType || (data.dataType === 'exhibition' ? 'exhibition' : 'activity');
+        const isExhibition = formType === 'exhibition';
+        const isMeeting = formType === 'meeting' || data.type === '會議使用';
+        
+        const form = document.getElementById(`${prefix}Form`);
+        form.reset();
+        
+        populateSelectWithOptions('main_type', initialDataCache.types, '請選擇類型...');
+        populateSelectWithOptions('main_audience', initialDataCache.audiences, '請選擇對象...');
+        populateLocationSelect('main_location', initialDataCache.venueGroups, '請選擇地點...');
+        
+        const titleEl = document.getElementById(`${prefix}FormTitle`);
+        const submitBtn = document.getElementById(`${prefix}SubmitButton`);
+        const deleteBtn = document.getElementById(`${prefix}DeleteButton`);
+        const backBtn = document.getElementById(`${prefix}BackButton`);
+        const clearBtn = document.getElementById(`${prefix}ClearButton`);
+        
+        backBtn.onclick = hideMainForm;
+        clearBtn.onclick = () => {
+            if (confirm("您確定要清除目前輸入的所有資料嗎？")) {
+                populateForm(prefix, 'CREATE', { formType: formType });
+            }
+        };
+
+        const setVal = (id, val) => {
+            let targetId = id;
+            if ((id === 'date' || id === 'startDate') && !isExhibition) {
+                targetId = 'date';
+                val = data.date || data.startDate;
+            } else if ((id === 'date' || id === 'startDate') && isExhibition) {
+                targetId = 'date';
+                val = data.startDate || data.date;
+            }
+            
+            const el = document.getElementById(`${prefix}_${targetId}`);
+            if (el) el.value = val ?? '';
+        };
+        // [新增] 回填「是否用餐」
+    setVal('cleaningRequired', data.cleaningRequired || '否');
+    setVal('url', data.url || ''); // [新增] 回填網址
+
+        if (mode === 'CREATE') {
+            titleEl.textContent = isExhibition ? '新增展覽資料' : (isMeeting ? '登記會議行程' : '新增活動/場租');
+            submitBtn.textContent = '送出';
+            submitBtn.onclick = () => handleCreateSubmit(prefix);
+            deleteBtn.style.display = 'none';
+        } else { // EDIT or CLONE
+            const rawData = data;
+            
+            Object.keys(rawData).forEach(key => setVal(key, rawData[key]));
+            
+            const locSelect = document.getElementById(`${prefix}_location`);
+            if (rawData.location && Array.from(locSelect.options).every(opt => opt.value !== rawData.location)) {
+                locSelect.value = OTHER_VALUE;
+                setVal('otherLocation', rawData.location);
+            }
+            toggleOtherLocation(prefix);
+
+            const regPeriod = rawData.registration || "";
+            if (regPeriod) {
+                const dates = regPeriod.split('~');
+                const eventYear = new Date(rawData.date || rawData.startDate).getFullYear();
+                if (dates[0]) {
+                    const [month, day] = dates[0].split('/');
+                    if (month && day) setVal('registrationStartDate', `${eventYear}-${String(month).padStart(2,'0')}-${String(day).padStart(2,'0')}`);
+                }
+                if (dates[1]) {
+                    const [month, day] = dates[1].split('/');
+                    if (month && day) setVal('registrationEndDate', `${eventYear}-${String(month).padStart(2,'0')}-${String(day).padStart(2,'0')}`);
+                }
+            }
+            
+            if (mode === 'EDIT') {
+                titleEl.textContent = isExhibition ? '修改展覽資料' : (isMeeting ? '修改會議行程' : '修改活動/場租');
+                submitBtn.textContent = '更改行程';
+                submitBtn.onclick = () => handleUpdateSubmit(prefix);
+                deleteBtn.style.display = 'inline-flex';
+                deleteBtn.onclick = () => handleDeleteSubmit(prefix);
+            } else { // CLONE
+                titleEl.textContent = `複製 - ${rawData.eventName}`;
+                submitBtn.textContent = '以此資料新增';
+                submitBtn.onclick = () => handleCreateSubmit(prefix);
+                deleteBtn.style.display = 'none';
+                setVal('eventId', '');
+                setVal('rowIndex', '');
+            }
+            // [新增] 回填邀請名單
+    const inviteesJson = data.invitees || '[]';
+    setVal('invitees', inviteesJson);
+    try {
+        const inviteesList = JSON.parse(inviteesJson);
+        renderInviteeList(prefix, inviteesList);
+    } catch (e) {
+        renderInviteeList(prefix, []);
+    }
+        }
+        
+        const typeSelect = document.getElementById(`${prefix}_type`);
+        if(isMeeting) {
+            typeSelect.value = '會議使用';
+            handleTypeChange(prefix);
+        } else if(isExhibition) {
+            const exhibitionTypes = ['展覽', '書展', '影展'];
+            Array.from(typeSelect.options).forEach(opt => {
+                opt.style.display = (opt.value && !exhibitionTypes.includes(opt.value)) ? 'none' : 'block';
+            });
+            if (!exhibitionTypes.includes(typeSelect.value)) typeSelect.value = '展覽';
+        } else { // activity
+            const nonActivityTypes = ['展覽', '書展', '影展', '會議使用'];
+            Array.from(typeSelect.options).forEach(opt => {
+                opt.style.display = (opt.value && nonActivityTypes.includes(opt.value)) ? 'none' : 'block';
+            });
+            if (nonActivityTypes.includes(typeSelect.value)) typeSelect.value = '';
+        }
+
+        populateTagInputs(data, prefix);
+        if (!isExhibition) {
+            populateTimeSelects(prefix);
+            if (data.startTime) {
+                document.getElementById(`${prefix}_startTime`).value = data.startTime;
+            }
+            updateEndTimeOptions(prefix, data.endTime);
+        }
+    }
+    
+    function handleTypeChange(prefix) {
+      const typeSelect = document.getElementById(`${prefix}_type`);
+      const detailsContainer = document.getElementById(`${prefix}_activityFieldsContainer`);
+      if (!typeSelect || !detailsContainer) return;
+      const isMeeting = typeSelect.value === '會議使用';
+      detailsContainer.style.display = isMeeting ? 'none' : 'block';
+    }
+
+    // ===============================================================
+    // --- 7. 表單提交與驗證 (Form Submission & Validation) ---
+    // ===============================================================
+    function validateForm(prefix) {
+        let isValid = true;
+        const formType = document.getElementById(`${prefix}_formType`).value;
+        const form = document.getElementById(`${prefix}Form`);
+        
+        form.querySelectorAll('.is-invalid').forEach(el => el.classList.remove('is-invalid'));
+        form.querySelectorAll('.error-message').forEach(el => el.style.display = 'none');
+
+        let requiredFields = ['eventName', 'location'];
+        if (formType === 'activity' || formType === 'meeting') {
+            requiredFields.push('date', 'startTime', 'endTime');
+            if (formType === 'activity' && document.getElementById(`${prefix}_type`).value !== '會議使用') {
+                requiredFields.push('type', 'audience', 'publicGuide');
+            }
+        } else { // exhibition
+            requiredFields.push('date', 'endDate', 'type', 'audience', 'publicGuide', 'organizer');
+        }
+
+        requiredFields.forEach(id => {
+            const field = document.getElementById(`${prefix}_${id}`);
+            if (!field) return;
+            if (id === 'location' && field.value === OTHER_VALUE) {
+                const otherInput = document.getElementById(`${prefix}_otherLocation`);
+                if (!otherInput || !otherInput.value.trim()) {
+                    otherInput.classList.add('is-invalid');
+                    isValid = false;
+                }
+            } else if (field.offsetParent !== null && !field.value) {
+                field.classList.add('is-invalid');
+                isValid = false;
+            }
+        });
+
+        if (formType === 'activity' || formType === 'meeting') {
+            if (!updateEndTimeOptions(prefix)) isValid = false;
+        }
+        if (formType === 'exhibition') {
+            const startDate = document.getElementById(`${prefix}_date`).value;
+            const endDate = document.getElementById(`${prefix}_endDate`).value;
+            if (startDate && endDate && startDate > endDate) {
+                document.getElementById(`${prefix}_endDate`).classList.add('is-invalid');
+                isValid = false;
+            }
+        }
+
+        const regStartDateEl = document.getElementById(`${prefix}_registrationStartDate`);
+        const regEndDateEl = document.getElementById(`${prefix}_registrationEndDate`);
+        const regErrorEl = document.getElementById(`${prefix}_registrationError`);
+        const eventDateEl = document.getElementById(`${prefix}_date`);
+
+        if (regStartDateEl && regEndDateEl && regErrorEl && eventDateEl && regStartDateEl.offsetParent !== null) {
+            const regStart = regStartDateEl.value;
+            const regEnd = regEndDateEl.value;
+            const eventDate = eventDateEl.value;
+            let errorMessage = "";
+
+            if (regStart && regEnd && regStart > regEnd) errorMessage = "報名結束日期不可早於開始日期。";
+            else if (eventDate && regEnd && regEnd >= eventDate) errorMessage = "報名結束日期必須早於活動日期。";
+            else if (eventDate && regStart && regStart >= eventDate) errorMessage = "報名開始日期必須早於活動日期。";
+            
+            if (errorMessage) {
+                regStartDateEl.classList.add('is-invalid');
+                regEndDateEl.classList.add('is-invalid');
+                regErrorEl.textContent = errorMessage;
+                regErrorEl.style.display = 'block';
+                isValid = false;
+            }
+        }
+        return isValid;
+    }
+    function handleCreateSubmit(prefix) {
+        if (!validateForm(prefix)) {
+            showMainFormMessage("請檢查紅色標示的欄位是否已正確填寫。", true);
+            return;
+        }
+        const eventData = collectFormData(prefix);
+        showMainFormLoading(true, "正在新增資料...");
+        google.script.run
+            .withSuccessHandler(createSubmitSuccessHandler(prefix, "新增成功！"))
+            .withFailureHandler(createSubmitFailureHandler(prefix, "新增"))
+            .insertRowAndSync(localStorage.getItem(SESSION_STORAGE_KEY), eventData);
+    }
+    function handleUpdateSubmit(prefix) {
+        if (!validateForm(prefix)) {
+            showMainFormMessage("請檢查紅色標示的欄位是否已正確填寫。", true);
+            return;
+        }
+        const eventData = collectFormData(prefix);
+        showMainFormLoading(true, "正在更新資料...");
+        google.script.run
+            .withSuccessHandler(createSubmitSuccessHandler(prefix, "更新成功！"))
+            .withFailureHandler(createSubmitFailureHandler(prefix, "更新"))
+            .updateRowAndSync(localStorage.getItem(SESSION_STORAGE_KEY), eventData);
+    }
+    function handleDeleteSubmit(prefix) {
+        const eventName = document.getElementById(`${prefix}_eventName`).value || '此項目';
+        if (!confirm(`您確定要永久刪除 "${eventName}" 嗎？此操作無法復原。`)) return;
+        
+        const eventId = document.getElementById(`${prefix}_eventId`).value;
+        
+        if (!eventId) {
+            showMainFormMessage("刪除失敗：缺少活動 ID。", true);
+            return;
+        }
+        showMainFormLoading(true, "正在刪除資料...");
+        google.script.run
+            .withSuccessHandler(createSubmitSuccessHandler(prefix, "刪除成功！"))
+            .withFailureHandler(createSubmitFailureHandler(prefix, "刪除"))
+            .deleteAnyEventById(localStorage.getItem(SESSION_STORAGE_KEY), eventId);
+    }
+    function collectFormData(prefix) {
+        const getVal = (id) => document.getElementById(`${prefix}_${id}`) ? document.getElementById(`${prefix}_${id}`).value : '';
+        const formType = getVal('formType');
+        const eventData = { formType };
+        
+        const locSelect = document.getElementById(`${prefix}_location`);
+        eventData.location = (locSelect.value === OTHER_VALUE) ? getVal('otherLocation').trim() : locSelect.value;
+        
+        // [修改] 在陣列中加入 'invitees'
+       ['eventName', 'speaker', 'notes', 'organizer', 'type', 'audience', 'publicGuide', 'registrants', 'cost', 'volunteer', 'cleaningRequired', 'url', 'invitees', 'eventId', 'secondEventId', 'rowIndex']
+            .forEach(key => eventData[key] = getVal(key));
+        
+        eventData.registration = formatRegistrationPeriod(getVal('registrationStartDate'), getVal('registrationEndDate'));
+
+        if (formType === 'activity' || formType === 'meeting') {
+            eventData.date = getVal('date');
+            eventData.startTime = getVal('startTime');
+            eventData.endTime = getVal('endTime');
+        } else {
+            eventData.startDate = getVal('date');
+            eventData.endDate = getVal('endDate');
+        }
+        
+        if (getVal('type') === '會議使用') {
+            // 注意：這裡清空了會議不需要的欄位，但我沒有加入 cleaningRequired，
+            // 這樣確保會議模式下，也能保留「是否用餐」的資料。
+            ['audience', 'publicGuide', 'registrants', 'cost', 'volunteer', 'registration'].forEach(key => eventData[key] = '');
+            for (let i = 1; i <= MAX_TAGS; i++) eventData[`tag${i}`] = '';
+        } else {
+            for (let i = 1; i <= MAX_TAGS; i++) {
+                const select = document.getElementById(`${prefix}_tagSelect${i}`);
+                if (select) {
+                    eventData[`tag${i}`] = (select.value === OTHER_VALUE) ? document.getElementById(`${prefix}_tagOther${i}`).value.trim() : select.value;
+                }
+            }
+        }
+        return eventData;
+    }
+    function createSubmitSuccessHandler(prefix, successMessage) {
+    return function(response) {
+        showMainFormLoading(false);
+        
+        if (response.success) {
+            // [新增功能] 成功時，畫面自動平滑捲動至最上方
+            // 這樣使用者就能立刻看到跳出的 Modal 視窗或 alert
+            window.scrollTo({ top: 0, behavior: 'smooth' }); 
+
+            handleReset(); 
+            if (response.notification) {
+                // 這裡會呼叫您提供的 showPostActionModal
+                showPostActionModal(response.notification);
+            } else {
+                alert(successMessage);
+            }
+        } else {
+            // [建議修改] 失敗時，直接彈出視窗警告
+            // 這樣無論使用者滑到哪裡，都一定看得到，也不用處理捲動問題
+            alert(`處理失敗：\n${response.message}`);
+            
+            // (選填) 同時也可以保留原本的紅字顯示，作為備份
+            showMainFormMessage(`處理失敗: ${response.message}`, true);
+        }
+    }
+}
+    function createSubmitFailureHandler(prefix, actionName) {
+        return function(error) {
+            showMainFormLoading(false);
+            showMainFormMessage(`${actionName}時發生網路錯誤: ${error.message}`, true);
+        }
+    }
+    
+    // ===============================================================
+    // --- 8. 搜尋與結果顯示 (Search & Results Display) ---
+    // ===============================================================
+    function handleSimpleSearch() {
+        ['location', 'type', 'audience', 'status', 'visibility', 'instructor', 'organizer']
+            .forEach(id => {
+                const el = document.getElementById(id);
+                if (el) el.value = '';
+            });
+        executeSearch();
+    }
+    function executeSearch() {
+      hideMainForm(); 
+      const sessionId = localStorage.getItem(SESSION_STORAGE_KEY);
+      if (!sessionId) { handleAuthError(); return; }
+      
+      const queryParams = {
+        startDate: document.getElementById('simpleStartDate').value,
+        endDate: document.getElementById('simpleEndDate').value,
+        keyword: document.getElementById('simpleKeyword').value,
+        location: document.getElementById('location').value,
+        type: document.getElementById('type').value,
+        audience: document.getElementById('audience').value,
+        status: document.getElementById('status').value,
+        visibility: document.getElementById('visibility').value,
+        instructor: document.getElementById('instructor').value,
+        organizer: document.getElementById('organizer').value,
+      // [新增] 抓取用餐清潔的下拉選單值
+        cleaningRequired: document.getElementById('cleaningRequired').value
+      };
+      
+      document.getElementById('resultsBody').innerHTML = ''; 
+      showGeneralMessage(''); 
+      showSimpleOrAdvancedSearchLoading(true); 
+
+      google.script.run
+        .withSuccessHandler(function(response) {
+          showSimpleOrAdvancedSearchLoading(false);
+          if (response.unauthorized) { handleAuthError(response.error); return; }
+          if (response.error) { showGeneralMessage("查詢失敗: " + response.error, true); return; }
+          showGeneralMessage(response.message || "查詢完成。", false); 
+          displayResults(response.results); 
+        })
+        .withFailureHandler(function(error) {
+          showSimpleOrAdvancedSearchLoading(false);
+          showGeneralMessage("查詢時發生錯誤: " + error.message, true);
+        })
+        .searchEvents(sessionId, queryParams);
+    }
+    function displayResults(results) {
+        const resultsBody = document.getElementById('resultsBody');
+        resultsBody.innerHTML = ''; 
+        if (!results || results.length === 0) return;
+      
+        results.forEach(function(event, index) { 
+            const row = resultsBody.insertRow();
+           if (event.status === '已取消' || event.status === '取消' || event.status === '行事曆已刪除') {
+                row.classList.add('event-cancelled'); 
+            }
+            
+            // 序號
+            row.insertCell().textContent = index + 1;
+            // 日期
+            row.insertCell().textContent = event.displayDate || '';
+            // 時間
+            row.insertCell().textContent = event.displayTime || '';
+            
+            // [修改重點] 活動名稱 (如果有網址則變為超連結)
+            const nameCell = row.insertCell();
+            if (event.url && event.url.toString().trim() !== '') {
+                // 建立超連結
+                // target="_blank" 代表開新視窗
+                // onclick="event.stopPropagation()" 是為了防止點擊連結時同時觸發「詳情」按鈕的效果(如果整列都有點擊事件的話)
+                nameCell.innerHTML = `<a href="${event.url}" target="_blank" class="text-blue-600 hover:text-blue-800 hover:underline" onclick="event.stopPropagation()">${event.eventName || ''}</a>`;
+            } else {
+                // 一般文字
+                nameCell.textContent = event.eventName || '';
+            }
+
+            // 地點
+            row.insertCell().textContent = event.location || '';
+            // 講師
+            row.insertCell().textContent = event.instructor || '';
+            // 承辦人
+            row.insertCell().textContent = event.organizer || '';
+            // 狀態
+            row.insertCell().textContent = event.status || '';
+            
+            // 詳情按鈕
+            const actionsCell = row.insertCell();
+            const detailsButton = document.createElement('button');
+            detailsButton.textContent = '詳情';
+            detailsButton.className = 'btn btn-sm bg-sky-500 hover:bg-sky-600 text-white';
+            detailsButton.onclick = function() { showDetailsModal(event); }; 
+            actionsCell.appendChild(detailsButton);
+        });
+    }
+
+    // ===============================================================
+    // --- 9. 其他輔助函式 (Other Helpers) ---
+    // ===============================================================
+    function loadInitialData() {
+        google.script.run
+            .withSuccessHandler(response => {
+                if (response.success) {
+                    initialDataCache = response;
+                    populateSelectWithOptions('location', initialDataCache.venueGroups, '所有地點');
+                    populateSelectWithOptions('type', initialDataCache.types.filter(t => t !== '--其他用途--'), '所有類型');
+                    populateSelectWithOptions('audience', initialDataCache.audiences, '所有對象');
+                    populateSelectWithOptions('status', initialDataCache.statuses, '所有狀態');
+                    populateSelectWithOptions('visibility', initialDataCache.visibilities, '全部');
+
+                    document.getElementById('initialLoadingMessage').style.display = 'none';
+                    document.getElementById('createActivityBtn').disabled = false;
+                    document.getElementById('createMeetingBtn').disabled = false;
+                    document.getElementById('createExhibitionBtn').disabled = false;
+                } else {
+                    document.getElementById('initialLoadingMessage').textContent = "載入篩選選項失敗: " + response.error;
+                }
+            })
+            .withFailureHandler(error => {
+                document.getElementById('initialLoadingMessage').textContent = "載入篩選選項時發生錯誤: " + error.message;
+            })
+            .getInitialData(localStorage.getItem(SESSION_STORAGE_KEY));
+    }
+    function handleReset() {
+      document.getElementById('searchForm').reset(); 
+      document.getElementById('simpleKeyword').value = '';
+      document.getElementById('aiQuery').value = '';
+      const today = new Date();
+      const todayString = `${today.getFullYear()}-${('0' + (today.getMonth() + 1)).slice(-2)}-${('0' + today.getDate()).slice(-2)}`;
+      document.getElementById('simpleStartDate').value = todayString; 
+      document.getElementById('simpleEndDate').value = todayString;
+      document.getElementById('resultsBody').innerHTML = ''; 
+      showGeneralMessage(''); 
+      showGeneralMessage('', false, 'aiSearchMessageArea');
+      hideMainForm();
+    }
+    function populateSelectWithOptions(selectId, options, defaultText) {
+        const select = document.getElementById(selectId);
+        if (!select) return;
+        select.innerHTML = `<option value="">${defaultText}</option>`;
+        if (selectId.includes('location') && options && options.internal) {
+            const internalGroup = document.createElement('optgroup');
+            internalGroup.label = '館內場地';
+            options.internal.forEach(loc => internalGroup.appendChild(new Option(loc, loc)));
+            select.appendChild(internalGroup);
+            const externalGroup = document.createElement('optgroup');
+            externalGroup.label = '其他場地';
+            options.external.forEach(loc => externalGroup.appendChild(new Option(loc, loc)));
+            select.appendChild(externalGroup);
+        } else if (Array.isArray(options)) {
+            options.forEach(opt => {
+                const option = new Option(opt, opt);
+                if (opt.startsWith('--')) option.disabled = true;
+                select.appendChild(option);
+            });
+        }
+    }
+    function populateLocationSelect(selectId, venueGroups, defaultText) {
+        const select = document.getElementById(selectId);
+        if (!select) return;
+        select.innerHTML = `<option value="">${defaultText}</option>`;
+        if (venueGroups && venueGroups.internal) {
+            const internalGroup = document.createElement('optgroup');
+            internalGroup.label = '館內場地';
+            venueGroups.internal.forEach(loc => internalGroup.appendChild(new Option(loc, loc)));
+            select.appendChild(internalGroup);
+        }
+        if (venueGroups && venueGroups.external) {
+            const externalGroup = document.createElement('optgroup');
+            externalGroup.label = '其他場地';
+            venueGroups.external.forEach(loc => externalGroup.appendChild(new Option(loc, loc)));
+            select.appendChild(externalGroup);
+        }
+        select.add(new Option('其他 (手動輸入)', OTHER_VALUE));
+    }
+    function initializeTimeOptions() {
+        timeOptions.length = 0;
+        for (let h = 8; h <= 22; h++) {
+            for (let m = 0; m < 60; m += 30) {
+                if (h === 22 && m > 0) break;
+                timeOptions.push(String(h).padStart(2, '0') + ":" + String(m).padStart(2, '0'));
+            }
+        }
+    }
+    function populateTimeSelects(prefix) {
+        const startTimeSelect = document.getElementById(`${prefix}_startTime`);
+        if (startTimeSelect) {
+            startTimeSelect.innerHTML = '<option value="" selected>請選擇時間...</option>'; 
+            timeOptions.forEach(time => startTimeSelect.add(new Option(time, time)));
+        }
+        updateEndTimeOptions(prefix);
+    }
+    function updateEndTimeOptions(prefix, timeToSet = null) {
+        const startTimeSelect = document.getElementById(`${prefix}_startTime`);
+        const endTimeSelect = document.getElementById(`${prefix}_endTime`);
+        if (!startTimeSelect || !endTimeSelect) return true;
+        
+        const valueToPreserve = timeToSet || endTimeSelect.value; 
+        const startIndex = timeOptions.indexOf(startTimeSelect.value);
+        const endTimeOptions = (startIndex > -1 && startIndex < timeOptions.length - 1) ? timeOptions.slice(startIndex + 1) : [];
+        
+        endTimeSelect.innerHTML = '<option value="" selected>請選擇時間...</option>'; 
+        endTimeOptions.forEach(time => endTimeSelect.add(new Option(time, time)));
+        
+        if (endTimeSelect.options.length <= 1) {
+            const disabledOption = new Option("無可用時間", "", false, true);
+            disabledOption.disabled = true;
+            endTimeSelect.add(disabledOption);
+        }
+        if (valueToPreserve && endTimeOptions.includes(valueToPreserve)) {
+            endTimeSelect.value = valueToPreserve;
+        }
+
+        const errorDiv = document.getElementById(`${prefix}_endTimeError`);
+        const isInvalid = !endTimeSelect.value || (startTimeSelect.value && timeOptions.indexOf(endTimeSelect.value) <= timeOptions.indexOf(startTimeSelect.value));
+        if(errorDiv) errorDiv.style.display = isInvalid ? 'block' : 'none';
+        endTimeSelect.classList.toggle('is-invalid', isInvalid);
+        return !isInvalid;
+    }
+    function populateTagInputs(data, prefix) {
+        const container = document.getElementById(`${prefix}_tagContainer`);
+        if (!container) return;
+        container.innerHTML = '';
+        const tagOptions = initialDataCache ? (initialDataCache.tags || []) : [];
+        let populatedCount = 0;
+        for (let i = 1; i <= MAX_TAGS; i++) { if (data[`tag${i}`]) populatedCount++;
+        }
+        visibleTagCount[prefix] = Math.max(1, populatedCount || 1);
+
+        for (let i = 1; i <= MAX_TAGS; i++) {
+            const tagValue = data[`tag${i}`] || '';
+            const isOther = tagValue && !tagOptions.includes(tagValue);
+            const group = document.createElement('div');
+            group.id = `${prefix}_tagGroup${i}`;
+            group.style.display = i <= visibleTagCount[prefix] ? 'block' : 'none';
+            group.innerHTML = `
+                <label for="${prefix}_tagSelect${i}" class="form-label text-sm">標籤 ${i}:</label>
+                <select id="${prefix}_tagSelect${i}" class="form-select" onchange="toggleOtherInput('${prefix}', ${i})">
+                    <option value="">請選擇或選其他...</option>
+                    ${tagOptions.map(opt => `<option value="${opt}" ${tagValue === opt ? 'selected' : ''}>${opt}</option>`).join('')}
+                    <option value="${OTHER_VALUE}" ${isOther ? 'selected' : ''}>其他</option>
+                </select>
+                <input type="text" id="${prefix}_tagOther${i}" class="form-input other-tag-input mt-1" placeholder="請輸入其他標籤內容" style="display: ${isOther ? 'block' : 'none'};" value="${isOther ? tagValue : ''}">
+            `;
+            container.appendChild(group);
+        }
+        document.getElementById(`${prefix}_addTagButton`).style.display = visibleTagCount[prefix] < MAX_TAGS ? 'inline-flex' : 'none';
+    }
+    function addTagInput(prefix) {
+        if (visibleTagCount[prefix] < MAX_TAGS) {
+            visibleTagCount[prefix]++;
+            document.getElementById(`${prefix}_tagGroup${visibleTagCount[prefix]}`).style.display = 'block';
+            if (visibleTagCount[prefix] === MAX_TAGS) {
+                document.getElementById(`${prefix}_addTagButton`).style.display = 'none';
+            }
+        }
+    }
+    function toggleOtherLocation(prefix) {
+        const locSelect = document.getElementById(`${prefix}_location`);
+        const otherLocContainer = document.getElementById(`${prefix}_otherLocationContainer`);
+        const otherLocInput = document.getElementById(`${prefix}_otherLocation`);
+        if (locSelect.value === OTHER_VALUE) {
+            otherLocContainer.style.display = 'block';
+            otherLocInput.required = true;
+        } else {
+            otherLocContainer.style.display = 'none';
+            otherLocInput.value = '';
+            otherLocInput.required = false;
+        }
+    }
+    function toggleOtherInput(prefix, index) {
+        const select = document.getElementById(`${prefix}_tagSelect${index}`);
+        const otherInput = document.getElementById(`${prefix}_tagOther${index}`);
+        otherInput.style.display = select.value === OTHER_VALUE ? 'block' : 'none';
+    }
+    function formatRegistrationPeriod(startDateStr, endDateStr) {
+      if (!startDateStr && !endDateStr) return "";
+      const formatDatePart = (dateString) => {
+        if (!dateString) return null;
+        const date = new Date(dateString);
+        if (isNaN(date.getTime())) return null;
+        return (date.getMonth() + 1) + '/' + date.getDate();
+      };
+      const startPart = formatDatePart(startDateStr);
+      const endPart = formatDatePart(endDateStr);
+      if (startPart && endPart) return `${startPart}~${endPart}`;
+      return startPart || endPart || "";
+    }
+    
+    // ===============================================================
+    // --- 10. AI 功能 (AI Features) ---
+    // ===============================================================
+    function handleNaturalLanguageSearch() {
+      const sessionId = localStorage.getItem(SESSION_STORAGE_KEY);
+      if (!sessionId) { handleAuthError("無法使用 AI 搜尋：Session ID 遺失。"); return; }
+      const queryText = document.getElementById('aiQuery').value;
+      if (!queryText.trim()) { showGeneralMessage("請在 AI 搜尋框中輸入您的問題。", true, 'aiSearchMessageArea'); return; }
+      
+      document.getElementById('resultsBody').innerHTML = '';
+      showGeneralMessage('AI 正在為您分析查詢...', false, 'aiSearchMessageArea');
+      document.getElementById('aiSearchSpinner').style.display = 'block';
+      document.getElementById('aiSearchButton').disabled = true;
+
+      google.script.run
+        .withSuccessHandler(function(response) {
+          document.getElementById('aiSearchSpinner').style.display = 'none';
+          document.getElementById('aiSearchButton').disabled = false;
+          if (response.unauthorized) { handleAuthError(response.error); return; }
+          if (response.error) { showGeneralMessage("AI 搜尋失敗: " + response.error, true, 'aiSearchMessageArea'); return; }
+          showGeneralMessage(response.message || "AI 搜尋完成。", false, 'aiSearchMessageArea');
+          displayResults(response.results);
+        })
+        .withFailureHandler(function(error) {
+          document.getElementById('aiSearchSpinner').style.display = 'none';
+          document.getElementById('aiSearchButton').disabled = false;
+          showGeneralMessage("AI 搜尋時發生錯誤: " + error.message, true, 'aiSearchMessageArea');
+        })
+        .processNaturalLanguageQuery(queryText, sessionId);
+    }
+    function handleSendChatMessage() {
+       const sessionId = localStorage.getItem(SESSION_STORAGE_KEY);
+        if (!sessionId) { handleAuthError("無法使用 AI 客服：Session ID 遺失。"); return; }
+        const chatInput = document.getElementById('chatInput');
+        const userMessage = chatInput.value.trim();
+        if (!userMessage) return;
+
+        appendChatMessage(userMessage, "user");
+        chatInput.value = "";
+        
+        document.getElementById('chatLoadingSpinnerContainer').style.display = 'flex';
+        document.getElementById('sendChatButton').disabled = true;
+        document.getElementById('resultsBody').innerHTML = '';
+        showGeneralMessage('');
+
+        google.script.run
+            .withSuccessHandler(function(response) {
+                document.getElementById('chatLoadingSpinnerContainer').style.display = 'none';
+                document.getElementById('sendChatButton').disabled = false;
+                if (response.unauthorized) { appendChatMessage("錯誤：連線階段已失效。", "ai"); handleAuthError(response.error); return; }
+                if (response.error) { appendChatMessage("AI 客服發生錯誤：" + response.error, "ai"); } 
+                else { 
+                    if (response.answer) appendChatMessage(response.answer, "ai"); 
+                    if (response.events && Array.isArray(response.events) && response.events.length > 0) {
+                        showGeneralMessage(`AI 客服為您找到 ${response.events.length} 筆活動：`, false);
+                        displayResults(response.events);
+                    }
+                }
+            })
+            .withFailureHandler(function(error) {
+                document.getElementById('chatLoadingSpinnerContainer').style.display = 'none';
+                document.getElementById('sendChatButton').disabled = false;
+                appendChatMessage("AI 客服連線失敗：" + error.message, "ai");
+            })
+            .getAiChatResponse(userMessage, sessionId);
+    }
+    function handleAiToolboxAction(actionType) {
+      if (!currentEventObject) {
+          document.getElementById('aiToolboxError').textContent = "沒有活動資料可供處理。";
+          return;
+      }
+      const sessionId = localStorage.getItem(SESSION_STORAGE_KEY);
+      if (!sessionId) {
+          document.getElementById('aiToolboxError').textContent = "Session 失效，請重新整理。";
+          return;
+      }
+      const additionalContext = document.getElementById('aiAdditionalContextInput').value;
+      const spinner = document.getElementById('aiToolboxSpinner');
+      
+      spinner.style.display = 'block';
+      document.getElementById('aiGeneratedOutputArea').style.display = 'none';
+      document.getElementById('aiGeneratedOutputText').innerHTML = '';
+      document.getElementById('aiToolboxError').textContent = '';
+
+      let backendFunction;
+      if (actionType === 'summary') backendFunction = 'generateActivitySummaryWithAi';
+      else if (actionType === 'promotion') backendFunction = 'generateEventPromotionWithAi';
+      else if (actionType === 'recap') backendFunction = 'generateEventRecapWithAi';
+      else { spinner.style.display = 'none'; return; }
+      
+      google.script.run
+          .withSuccessHandler(function(response) {
+              spinner.style.display = 'none';
+              if (response.unauthorized) { document.getElementById('aiToolboxError').textContent = "未授權，請重新登入。"; return; }
+              if (response.error) { document.getElementById('aiToolboxError').textContent = "AI 處理失敗：" + response.error; } 
+              else {
+                  let displayText = "";
+                  if (actionType === 'summary' && response.summary && response.highlights) {
+                      displayText = `摘要：\n${response.summary}\n\n亮點：\n${response.highlights.join('\n- ')}`;
+                  } else if (response.generatedText) {
+                      displayText = response.generatedText;
+                  }
+                  document.getElementById('aiGeneratedOutputText').innerHTML = displayText.replace(/\n/g, "<br>");
+                  document.getElementById('aiGeneratedOutputArea').style.display = 'block';
+                  document.getElementById('modalBody').scrollTo({ top: document.getElementById('modalBody').scrollHeight, behavior: 'smooth' });
+              }
+          })
+          .withFailureHandler(function(error) {
+              spinner.style.display = 'none';
+              document.getElementById('aiToolboxError').textContent = "與 AI 服務連線時發生錯誤：" + error.message;
+          })
+          [backendFunction](currentEventObject, additionalContext, sessionId);
+    }
+    function resetAiToolbox() {
+        const aiContext = document.getElementById('aiAdditionalContextInput');
+        const aiOutput = document.getElementById('aiGeneratedOutputArea');
+        const aiError = document.getElementById('aiToolboxError');
+        if(aiContext) aiContext.value = '';
+        if(aiOutput) aiOutput.style.display = 'none';
+        if(aiError) aiError.textContent = '';
+    }
+    function appendChatMessage(message, sender) {
+      const chatDisplay = document.getElementById('chatDisplay');
+      const messageDiv = document.createElement('div');
+      messageDiv.classList.add('chat-message', sender === 'user' ? 'user-message' : 'ai-message');
+      messageDiv.innerHTML = message.replace(/\n/g, "<br>");
+      chatDisplay.appendChild(messageDiv);
+      chatDisplay.scrollTop = chatDisplay.scrollHeight;
+    }
+
+    // ===============================================================
+    // --- [新增] 讀者洽詢系統邏輯 ---
+    // ===============================================================
+
+    // 1. 初始化：根據角色決定顯示哪個區塊
+    function initInquirySystem(role) {
+        const inquirySection = document.getElementById('inquirySection');
+        const submitForm = document.getElementById('inquirySubmitForm');
+        const listSection = document.getElementById('inquiryListSection');
+
+        inquirySection.style.display = 'none';
+        submitForm.style.display = 'none';
+        listSection.style.display = 'none';
+
+        if (!role) return;
+
+        const canSubmit = (role === '委外櫃台' || role === '管理員');
+        // [修改] 只要是授權用戶，都可以看列表(為了查詢)
+        const canViewList = (role === '委外櫃台' || role === '一般使用者' || role === 'AI用戶' || role === '管理員');
+
+        if (canSubmit || canViewList) {
+            inquirySection.style.display = 'block';
+        }
+
+        if (canSubmit) {
+            submitForm.style.display = 'block';
+        }
+
+        if (canViewList) {
+            listSection.style.display = 'block';
+            // 預設載入列表
+            handleInquirySearch(); 
+        }
+    }
+
+    // 2. 提交問題
+    function submitInquiry() {
+        const source = document.getElementById('inqSource').value;
+        const name = document.getElementById('inqName').value;
+        const phone = document.getElementById('inqPhone').value;
+        const content = document.getElementById('inqContent').value;
+        // [新增] 抓取填單人
+        const submitter = document.getElementById('inqSubmitter').value;
+
+        if (!name || !content) {
+            alert("請至少填寫姓名與問題內容。");
+            return;
+        }
+        
+        // [新增] 檢查填單人是否填寫 (視需求決定是否為必填，建議必填)
+        if (!submitter) {
+            alert("請填寫填單人姓名。");
+            return;
+        }
+
+        // [修正] 將 submitter 加入 formData
+        const formData = { 
+            source: source, 
+            name: name, 
+            phone: phone, 
+            content: content, 
+            submitter: submitter // <--- 這裡如果漏掉，F欄就會寫入錯誤(或變成登入者名稱)
+        };
+        
+        const btn = document.querySelector('#inquirySubmitForm button');
+        btn.disabled = true;
+        btn.textContent = "提交中...";
+
+        google.script.run
+            .withSuccessHandler(res => {
+                btn.disabled = false;
+                btn.textContent = "提交問題";
+                if (res.success) {
+                    alert(res.message);
+                    // 清空表單
+                    document.getElementById('inqName').value = '';
+                    document.getElementById('inqPhone').value = '';
+                    document.getElementById('inqContent').value = '';
+                    // 填單人不清空，保留方便連續輸入
+                    
+                    // [修正重點] 若同時是管理員，刷新列表 -> 改用新的搜尋函式
+                    if (currentUserRole === '管理員') {
+                        handleInquirySearch(); 
+                    }
+
+                } else {
+                    alert(res.message);
+                }
+            })
+            .submitReaderInquiry(localStorage.getItem(SESSION_STORAGE_KEY), formData);
+    }
+
+    // 3. 載入列表
+    // [新增] 處理搜尋與列表載入
+    function handleInquirySearch() {
+        const keyword = document.getElementById('inqSearchKeyword').value || '';
+        const loading = document.getElementById('inquiryListLoading');
+        loading.style.display = 'block';
+        document.getElementById('inquiryListContainer').innerHTML = '';
+
+        google.script.run
+            .withSuccessHandler(res => {
+                loading.style.display = 'none';
+                if (res.success) {
+                    allInquiries = res.data;
+                    renderInquiryList();
+                } else {
+                    alert(res.message);
+                }
+            })
+            .searchReaderInquiries(localStorage.getItem(SESSION_STORAGE_KEY), keyword);
+    }
+
+    // 4. 切換分頁 (未處理 / 已處理 / 全部)
+    function switchInquiryTab(tab) {
+        currentInquiryTab = tab;
+        // 更新 Tab 樣式
+        const tabs = document.querySelectorAll('.inquiry-tab');
+        tabs.forEach(el => el.classList.remove('active'));
+        
+        if (tab === 'unprocessed') tabs[0].classList.add('active');
+        if (tab === 'processed') tabs[1].classList.add('active');
+        if (tab === 'all') tabs[2].classList.add('active');
+
+        renderInquiryList();
+    }
+
+    // 5. 渲染列表畫面
+    function renderInquiryList() {
+        const container = document.getElementById('inquiryListContainer');
+        container.innerHTML = '';
+
+        const filtered = allInquiries.filter(item => {
+            if (currentInquiryTab === 'all') return true;
+            return item.status === currentInquiryTab;
+        });
+
+        if (filtered.length === 0) {
+            container.innerHTML = '<div class="text-center text-gray-500 py-8">目前沒有相關資料。</div>';
+            return;
+        }
+
+        // 定義權限
+        const canReplyRole = (currentUserRole === '一般使用者' || currentUserRole === 'AI用戶' || currentUserRole === '管理員');
+        const canEditInquiryRole = (currentUserRole === '委外櫃台' || currentUserRole === '管理員');
+
+        const now = new Date();
+
+        filtered.forEach(item => {
+            const isProcessed = item.status === 'processed';
+            
+            // 卡片樣式：左側邊框顏色區分狀態 (橘色:未處理 / 灰色:已處理)
+            const cardClass = isProcessed 
+                ? 'bg-gray-50 border border-gray-200 rounded-lg shadow-sm mb-6 p-5 transition-all' 
+                : 'bg-white border-l-4 border-l-orange-400 border-t border-r border-b border-gray-200 rounded-r-lg shadow-md mb-6 p-5 transition-all hover:shadow-lg';
+            
+            // --- 邏輯 A: 櫃台修改提問按鈕 ---
+            const itemDate = new Date(item.timestamp);
+            const diffHours = (now - itemDate) / (1000 * 60 * 60);
+            
+            // [修正重點] 根據角色設定不同的按鈕顯示邏輯
+            let canEditInquiry = false;
+
+            if (currentUserRole === '管理員') {
+                // 管理員隨時可見
+                canEditInquiry = true;
+            } else if (currentUserRole === '委外櫃台') {
+                // 委外櫃台：必須同時滿足 (4小時內) && (未處理)
+                // 只要 (超過4小時) || (已處理) 就不顯示
+                canEditInquiry = (diffHours < 4 && !isProcessed);
+            }
+            
+            let editInquiryBtnHtml = '';
+            if (canEditInquiry) {
+                const safeData = encodeURIComponent(JSON.stringify(item));
+                editInquiryBtnHtml = `<button class="text-xs text-gray-500 hover:text-blue-600 hover:bg-blue-50 border border-gray-200 hover:border-blue-200 px-2 py-0.5 rounded transition-colors ml-2 flex items-center gap-1" onclick="openEditInquiryModal('${safeData}')">✏️ 修改</button>`;
+            }
+
+            // --- 邏輯 B: 回覆區塊 ---
+            let actionHtml = '';
+
+            if (isProcessed) {
+                let editReplyBtnHtml = '';
+                if (canReplyRole) {
+                    editReplyBtnHtml = `<button class="ml-2 text-xs text-gray-400 hover:text-blue-600 underline" onclick="enableEditReply(${item.rowIndex})">修改</button>`;
+                }
+
+                actionHtml = `
+                    <div id="reply_display_${item.rowIndex}" class="mt-4 pt-4 border-t border-gray-200">
+                        <div class="flex items-start gap-3">
+                            <div class="flex-shrink-0 mt-1">
+                                <span class="flex items-center justify-center w-8 h-8 rounded-full bg-green-100 text-green-600 font-bold text-sm">答</span>
+                            </div>
+                            <div class="flex-grow">
+                                <div class="flex flex-wrap items-baseline gap-2 mb-1">
+                                    <span class="font-bold text-gray-700 text-base">${item.handler}</span>
+                                    <span class="text-xs text-gray-400">${item.replyDate}</span>
+                                    ${editReplyBtnHtml}
+                                </div>
+                                <div id="reply_content_${item.rowIndex}" class="text-gray-800 whitespace-pre-wrap leading-relaxed">${item.replyContent}</div>
+                            </div>
+                        </div>
+                        
+                        <div id="reply_edit_form_${item.rowIndex}" style="display: none;" class="mt-3 bg-white p-4 rounded border border-blue-200 shadow-inner">
+                            <label class="block text-xs font-bold text-gray-700 mb-1">修改承辦人：</label>
+                            <input type="text" id="handler_${item.rowIndex}" class="form-input text-sm mb-2 w-full md:w-1/3" value="${item.handler}">
+                            <label class="block text-xs font-bold text-gray-700 mb-1">修改內容：</label>
+                            <textarea id="reply_input_${item.rowIndex}" class="form-input mb-2 w-full" rows="3"></textarea>
+                            <div class="flex gap-2 justify-end">
+                                <button class="btn btn-sm btn-secondary" onclick="cancelEditReply(${item.rowIndex})">取消</button>
+                                <button class="btn btn-sm btn-primary" onclick="submitReply(${item.rowIndex})">更新回覆</button>
+                            </div>
+                        </div>
+                    </div>
+                `;
+            } else {
+                // 未處理
+                if (canReplyRole) {
+                    actionHtml = `
+                        <div class="mt-4 pt-4 border-t border-orange-100">
+                            <div class="bg-orange-50 p-4 rounded-lg border border-orange-200">
+                                <label class="block text-sm font-bold text-gray-800 mb-2 flex items-center">
+                                    <span class="w-2 h-6 bg-orange-500 rounded mr-2"></span>
+                                    回覆處理
+                                </label>
+                                <div class="flex flex-col md:flex-row gap-3 mb-3">
+                                    <div class="w-full md:w-1/4">
+                                        <input type="text" id="handler_${item.rowIndex}" class="form-input text-sm" placeholder="承辦人姓名">
+                                    </div>
+                                    <div class="w-full md:w-3/4">
+                                         <textarea id="reply_input_${item.rowIndex}" class="form-input text-sm" placeholder="請輸入回覆內容..." rows="1"></textarea>
+                                    </div>
+                                </div>
+                                <div class="text-right">
+                                    <button class="btn btn-sm btn-primary px-6" onclick="submitReply(${item.rowIndex})">送出回覆</button>
+                                </div>
+                            </div>
+                        </div>
+                    `;
+                } else {
+                    actionHtml = `
+                        <div class="mt-3 pt-2 text-center">
+                            <span class="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-orange-100 text-orange-800">
+                                ⏳ 等待承辦人回覆中
+                            </span>
+                        </div>
+                    `;
+                }
+            }
+
+            // [修改重點] 版面重構：將時間與修改按鈕移至左側，緊接在標籤後方
+            const html = `
+                <div class="${cardClass} max-w-5xl mx-auto">
+                    <div class="mb-4 pb-3 border-b border-gray-100">
+                        <div class="flex flex-wrap items-center gap-2 mb-2">
+                            <span class="font-bold text-xl text-gray-800 mr-1">${item.name}</span>
+                            <span class="px-2 py-0.5 text-xs rounded border ${item.source === '電話' ? 'bg-blue-50 text-blue-600 border-blue-200' : 'bg-purple-50 text-purple-600 border-purple-200'}">
+                                ${item.source}
+                            </span>
+                            <span class="text-xs text-gray-400 font-mono ml-1 flex items-center">
+                                ${item.timestamp}
+                            </span>
+                            ${editInquiryBtnHtml}
+                        </div>
+                        
+                        <div class="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-gray-500">
+                            <span class="flex items-center">📞 ${item.phone}</span>
+                            <span class="text-gray-300">|</span>
+                            <span class="flex items-center">👤 填單人: ${item.submitter}</span>
+                        </div>
+                    </div>
+                    
+                    <div class="flex items-start gap-3 mb-2 pl-1">
+                        <div class="flex-shrink-0 mt-1">
+                             <span class="flex items-center justify-center w-8 h-8 rounded-full bg-gray-200 text-gray-600 font-bold text-sm">問</span>
+                        </div>
+                        <div class="flex-grow">
+                             <div class="font-medium text-gray-800 whitespace-pre-wrap leading-relaxed bg-gray-50 p-3 rounded border border-gray-100">${item.content}</div>
+                        </div>
+                    </div>
+                    
+                    ${actionHtml}
+                </div>
+            `;
+            container.insertAdjacentHTML('beforeend', html);
+        });
+    }
+
+    // 6. 送出回覆
+    function submitReply(rowIndex) {
+        const replyContent = document.getElementById(`reply_${rowIndex}`).value;
+        // [新增] 取得承辦人
+        const handlerName = document.getElementById(`handler_${rowIndex}`).value;
+
+        if (!replyContent) {
+            alert("請輸入回覆內容");
+            return;
+        }
+        if (!handlerName) {
+            alert("請輸入承辦人姓名");
+            return;
+        }
+
+        if (!confirm("確定要送出回覆嗎？")) return;
+        
+        // 顯示按鈕 loading 狀態 (Optional UX improvement)
+        const btn = event.target; // 取得點擊的按鈕
+        const originalText = btn.textContent;
+        btn.disabled = true;
+        btn.textContent = "傳送中...";
+
+        google.script.run
+            .withSuccessHandler(res => {
+                if (res.success) {
+                    alert("回覆成功");
+                    handleInquirySearch(); // 重新整理列表
+                } else {
+                    alert(res.message);
+                    btn.disabled = false;
+                    btn.textContent = originalText;
+                }
+            })
+            // [修改] 傳遞 handlerName
+            .replyToReaderInquiry(localStorage.getItem(SESSION_STORAGE_KEY), rowIndex, replyContent, handlerName);
+    }
+
+    // 讀取後端通訊錄
+// 我們會將此函式放在程式碼最後面執行，讓它在背景默默載入
+function loadContactList() {
+  console.log("正在背景載入通訊錄...");
+  google.script.run.withSuccessHandler(function(contacts) {
+    globalContactList = contacts;
+    console.log("通訊錄已載入完成", Object.keys(contacts).length + " 個組別");
+    
+    // 如果資料回來時，表單已經打開了，嘗試即時更新下拉選單
+    // 嘗試抓取可能存在的下拉選單 ID (假設前綴是 main)
+    const groupSelect = document.getElementById('main_inviteeGroup');
+    if (groupSelect && groupSelect.options.length <= 1) {
+        let optionsHtml = '<option value="">選擇組別...</option>';
+        Object.keys(contacts).forEach(group => {
+            optionsHtml += `<option value="${group}">${group}</option>`;
+        });
+        groupSelect.innerHTML = optionsHtml;
+    }
+  }).getContactList();
+}
+
+// --- [新增] 邀請名單相關 UI 操作函式 ---
+
+// 當選擇組別時，更新人員選單
+function updatePersonOptions(prefix) {
+    const groupSelect = document.getElementById(`${prefix}_inviteeGroup`);
+    const personSelect = document.getElementById(`${prefix}_inviteePerson`);
+    const selectedGroup = groupSelect.value;
+    
+    personSelect.innerHTML = '<option value="">選擇人員...</option>';
+    
+    if (selectedGroup && globalContactList[selectedGroup]) {
+        globalContactList[selectedGroup].forEach(person => {
+            const option = document.createElement('option');
+            option.value = person.email;
+            option.textContent = person.name;
+            option.setAttribute('data-name', person.name); 
+            personSelect.appendChild(option);
+        });
+    }
+}
+
+// 當選擇人員時，自動填入輸入框
+function fillInviteeInputs(prefix) {
+    const personSelect = document.getElementById(`${prefix}_inviteePerson`);
+    const selectedOption = personSelect.options[personSelect.selectedIndex];
+    
+    if (selectedOption && selectedOption.value) {
+        document.getElementById(`${prefix}_inviteeName`).value = selectedOption.getAttribute('data-name');
+        document.getElementById(`${prefix}_inviteeEmail`).value = selectedOption.value;
+    }
+}
+
+// 加入人員到列表
+function addInvitee(prefix) {
+    const nameInput = document.getElementById(`${prefix}_inviteeName`);
+    const emailInput = document.getElementById(`${prefix}_inviteeEmail`);
+    const name = nameInput.value.trim();
+    const email = emailInput.value.trim();
+    
+    if (!name || !email) {
+        alert("請輸入姓名與 Email");
+        return;
+    }
+    if (!email.includes('@')) {
+        alert("Email 格式不正確");
+        return;
+    }
+
+    const hiddenInput = document.getElementById(`${prefix}_invitees`);
+    let currentList = [];
+    try {
+        currentList = JSON.parse(hiddenInput.value || '[]');
+    } catch(e) { currentList = []; }
+
+    if (currentList.some(p => p.email === email)) {
+        alert("此 Email 已在名單中");
+        return;
+    }
+
+    currentList.push({ name: name, email: email });
+    hiddenInput.value = JSON.stringify(currentList);
+    
+    renderInviteeList(prefix, currentList);
+    
+    // 清空輸入框與重置選單
+    nameInput.value = '';
+    emailInput.value = '';
+    const groupSelect = document.getElementById(`${prefix}_inviteeGroup`);
+    const personSelect = document.getElementById(`${prefix}_inviteePerson`);
+    if(groupSelect) groupSelect.value = '';
+    if(personSelect) personSelect.innerHTML = '<option value="">選擇人員...</option>';
+}
+
+// 移除人員
+function removeInvitee(prefix, index) {
+    const hiddenInput = document.getElementById(`${prefix}_invitees`);
+    let currentList = JSON.parse(hiddenInput.value || '[]');
+    currentList.splice(index, 1);
+    hiddenInput.value = JSON.stringify(currentList);
+    renderInviteeList(prefix, currentList);
+}
+
+// 渲染名單畫面
+function renderInviteeList(prefix, list) {
+    const container = document.getElementById(`${prefix}_inviteeList`);
+    if (!container) return;
+    container.innerHTML = '';
+    
+    list.forEach((p, index) => {
+        const chip = document.createElement('div');
+        chip.className = 'flex items-center bg-blue-100 text-blue-800 text-sm px-2 py-1 rounded-full mr-2 mb-2 border border-blue-200';
+        chip.innerHTML = `<span>${p.name}</span><button type="button" class="ml-2 text-blue-600 hover:text-red-600 font-bold" onclick="removeInvitee('${prefix}', ${index})">×</button>`;
+        container.appendChild(chip);
+    });
+}
+// --- [新增] 程式碼讀取完畢後，立即在背景載入通訊錄 ---
+loadContactList();
+
+// --- [新增] 修改提問 (Modal 操作) ---
+    
+    function openEditInquiryModal(encodedData) {
+        const item = JSON.parse(decodeURIComponent(encodedData));
+        
+        document.getElementById('editRowIndex').value = item.rowIndex;
+        document.getElementById('editInqSource').value = item.source;
+        document.getElementById('editInqName').value = item.name;
+        // 電話可能有單引號，顯示時要拿掉
+        document.getElementById('editInqPhone').value = (item.phone || '').replace(/^'/, '');
+        document.getElementById('editInqContent').value = item.content;
+        
+        document.getElementById('editInquiryModal').style.display = 'block';
+    }
+
+    function closeEditInquiryModal() {
+        document.getElementById('editInquiryModal').style.display = 'none';
+    }
+
+    function submitInquiryEdit() {
+        const rowIndex = document.getElementById('editRowIndex').value;
+        const source = document.getElementById('editInqSource').value;
+        const name = document.getElementById('editInqName').value;
+        const phone = document.getElementById('editInqPhone').value;
+        const content = document.getElementById('editInqContent').value;
+
+        if (!name || !content) { alert("姓名與內容不可為空"); return; }
+
+        const formData = { source, name, phone, content };
+        const btn = document.querySelector('#editInquiryModal .btn-primary');
+        const originalText = btn.textContent;
+        btn.disabled = true;
+        btn.textContent = "儲存中...";
+
+        google.script.run
+            .withSuccessHandler(res => {
+                btn.disabled = false;
+                btn.textContent = originalText;
+                if (res.success) {
+                    alert(res.message);
+                    closeEditInquiryModal();
+                    handleInquirySearch(); // 刷新列表
+                } else {
+                    alert(res.message);
+                }
+            })
+            .editInquiryContent(localStorage.getItem(SESSION_STORAGE_KEY), rowIndex, formData);
+    }
+
+    // --- [新增] 修改回覆 (切換顯示模式) ---
+
+    function enableEditReply(rowIndex) {
+        // 隱藏顯示區，顯示編輯區
+        document.getElementById(`reply_content_${rowIndex}`).style.display = 'none';
+        
+        // 將現有內容填入 textarea
+        const currentContent = document.getElementById(`reply_content_${rowIndex}`).textContent;
+        document.getElementById(`reply_input_${rowIndex}`).value = currentContent;
+        
+        document.getElementById(`reply_edit_form_${rowIndex}`).style.display = 'block';
+    }
+
+    function cancelEditReply(rowIndex) {
+        document.getElementById(`reply_content_${rowIndex}`).style.display = 'block';
+        document.getElementById(`reply_edit_form_${rowIndex}`).style.display = 'none';
+    }
+
+    // --- [修改] submitReply (需調整以支援 textarea id 的變化) ---
+    function submitReply(rowIndex) {
+        // [修正] ID 統一改為 reply_input_
+        const replyInput = document.getElementById(`reply_input_${rowIndex}`); 
+        const handlerInput = document.getElementById(`handler_${rowIndex}`);
+        
+        const replyContent = replyInput.value;
+        const handlerName = handlerInput.value;
+
+        if (!replyContent) { alert("請輸入回覆內容"); return; }
+        if (!handlerName) { alert("請輸入承辦人姓名"); return; }
+
+        if (!confirm("確定要更新/送出回覆嗎？")) return;
+        
+        // 顯示 Loading (如果是在編輯模式下的按鈕)
+        const btn = event.target;
+        const originalText = btn.textContent;
+        btn.disabled = true;
+        btn.textContent = "處理中...";
+
+        google.script.run
+            .withSuccessHandler(res => {
+                if (res.success) {
+                    alert("操作成功");
+                    handleInquirySearch();
+                } else {
+                    alert(res.message);
+                    btn.disabled = false;
+                    btn.textContent = originalText;
+                }
+            })
+            .replyToReaderInquiry(localStorage.getItem(SESSION_STORAGE_KEY), rowIndex, replyContent, handlerName);
+    }
+
+  </script>
+</body>
+</html>
