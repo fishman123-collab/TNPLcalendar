@@ -368,6 +368,27 @@ let globalContactList = {};
   EVENT_URL: 27 // [新增]
 };
 
+    // [新增] 替換 google.script.run 的 API 呼叫器
+const GAS_API_URL = "https://script.google.com/macros/s/AKfycbww1QwoGZOyTGC2BoDY_omAWZi8D0xkHxqMKf0gxkvgO_CZz3hbshz_jm5CsPFV7bYc2Q/exec"; // 非常重要：請填入您部署為網頁應用程式的 URL
+let globalLineUserId = null; // 儲存使用者的 LINE ID
+
+async function callGasApi(action, payload = {}) {
+  try {
+    const response = await fetch(GAS_API_URL, {
+      method: 'POST',
+      body: JSON.stringify({
+        action: action,
+        lineUserId: globalLineUserId, // 每次請求都帶上 LINE ID 驗證
+        payload: payload
+      })
+    });
+    return await response.json();
+  } catch (error) {
+    console.error("API 呼叫失敗:", error);
+    throw error;
+  }
+}
+
     // ===============================================================
     // --- 2. 初始化與事件監聽 (Initialization & Event Listeners) ---
     // ===============================================================
@@ -453,52 +474,44 @@ let globalContactList = {};
     // ===============================================================
     // --- 4. 驗證與授權 (Authentication & Authorization) ---
     // ===============================================================
-    // 前端：初始化 LIFF 與驗證
+    // [修改] 系統初始化：引入 LIFF
 async function initializeApp() {
-    showAuthView("正在連接 LINE 驗證系統...", true);
-    initializeTimeOptions();
-
-    try {
-        // 替換為您的 LIFF ID (需在 LINE Developers Console 申請並開啟 email 獲取權限)
-        await liff.init({ liffId: "2008914129-tWoT4s7q" }); 
-        
-        if (!liff.isLoggedIn()) {
-            liff.login(); // 未登入則跳轉 LINE 登入畫面
-            return;
-        }
-
-        // 獲取使用者 LINE 資訊
-        const profile = await liff.getProfile();
-        const idToken = liff.getDecodedIDToken();
-        const userEmail = idToken ? idToken.email : null; // 需要在 LINE Login 設定中審核 Email 權限
-
-        const lineUserData = {
-            userId: profile.userId,
-            displayName: profile.displayName,
-            email: userEmail
-        };
-
-        showAuthView("驗證權限中...", true);
-
-        // 將 LINE 資料傳給後端 GAS 進行權限比對
-        google.script.run
-            .withSuccessHandler(response => {
-                if (response && response.authenticated) {
-                    localStorage.setItem(SESSION_STORAGE_KEY, response.sessionId);
-                    currentUserRole = response.userRole;
-                    showAppView(response.username, response.userRole);
-                    loadInitialData();
-                    initInquirySystem(response.userRole);
-                } else {
-                    handleAuthError(response ? response.error : "您的 LINE 帳戶未被授權。");
-                }
-            })
-            .withFailureHandler(error => handleAuthError("伺服器連線錯誤: " + error.message))
-            .verifyLiffUser(lineUserData); // 呼叫新的後端驗證函數
-
-    } catch (err) {
-        handleAuthError("LIFF 初始化失敗：" + err.message);
+  showAuthView("正在連接 LINE 系統...", true);
+  initializeTimeOptions();
+  
+  try {
+    // 1. 初始化 LIFF (請填入您的 LIFF ID)
+    await liff.init({ liffId: "2008914129-tWoT4s7q" });
+    
+    // 2. 如果沒登入，要求登入
+    if (!liff.isLoggedIn()) {
+      liff.login();
+      return;
     }
+
+    // 3. 取得 LINE 使用者資料
+    const profile = await liff.getProfile();
+    globalLineUserId = profile.userId; // 存入全域變數
+    
+    showAuthView("正在驗證您的存取權限...", true);
+
+    // 4. 呼叫後端驗證 (取代原有的 google.script.run.checkUserAndGetSession)
+    const response = await callGasApi('checkLiffUserAuth', { 
+      lineUserId: profile.userId, 
+      displayName: profile.displayName 
+    });
+
+    if (response && response.authenticated) {
+      currentUserRole = response.userRole;
+      showAppView(response.username, response.userRole);
+      loadInitialData(); // 這裡面也要改成 callGasApi (見下一步)
+      initInquirySystem(response.userRole);
+    } else {
+      handleAuthError(response ? response.error : "您的帳戶未被授權。");
+    }
+  } catch (error) {
+    handleAuthError("初始化失敗: " + error.message);
+  }
 }
     function handleLogout() {
       const sessionId = localStorage.getItem(SESSION_STORAGE_KEY);
@@ -1190,18 +1203,24 @@ async function initializeApp() {
         }
         return isValid;
     }
-    function handleCreateSubmit(prefix) {
-        if (!validateForm(prefix)) {
-            showMainFormMessage("請檢查紅色標示的欄位是否已正確填寫。", true);
-            return;
-        }
-        const eventData = collectFormData(prefix);
-        showMainFormLoading(true, "正在新增資料...");
-        google.script.run
-            .withSuccessHandler(createSubmitSuccessHandler(prefix, "新增成功！"))
-            .withFailureHandler(createSubmitFailureHandler(prefix, "新增"))
-            .insertRowAndSync(localStorage.getItem(SESSION_STORAGE_KEY), eventData);
-    }
+    async function handleCreateSubmit(prefix) {
+  if (!validateForm(prefix)) {
+      showMainFormMessage("請檢查紅色標示的欄位是否已正確填寫。", true);
+      return;
+  }
+  const eventData = collectFormData(prefix);
+  showMainFormLoading(true, "正在新增資料...");
+  
+  try {
+    // 使用 callGasApi 取代 google.script.run
+    const response = await callGasApi('insertRowAndSync', { eventData: eventData });
+    
+    // 呼叫原本寫好的 SuccessHandler (因為它回傳一個 function，我們直接傳入 response 執行)
+    createSubmitSuccessHandler(prefix, "新增成功！")(response);
+  } catch (error) {
+    createSubmitFailureHandler(prefix, "新增")(error);
+  }
+}
     function handleUpdateSubmit(prefix) {
         if (!validateForm(prefix)) {
             showMainFormMessage("請檢查紅色標示的欄位是否已正確填寫。", true);
@@ -1402,10 +1421,12 @@ async function initializeApp() {
     // ===============================================================
     // --- 9. 其他輔助函式 (Other Helpers) ---
     // ===============================================================
-    function loadInitialData() {
-        google.script.run
-            .withSuccessHandler(response => {
-                if (response.success) {
+    async function loadInitialData() {
+  try {
+    // 呼叫 API，action 名稱要對應 doPost 裡的 case
+    const response = await callGasApi('getInitialData', {});
+    
+    if (response.success) {
                     initialDataCache = response;
                     populateSelectWithOptions('location', initialDataCache.venueGroups, '所有地點');
                     populateSelectWithOptions('type', initialDataCache.types.filter(t => t !== '--其他用途--'), '所有類型');
@@ -1418,8 +1439,11 @@ async function initializeApp() {
                     document.getElementById('createMeetingBtn').disabled = false;
                     document.getElementById('createExhibitionBtn').disabled = false;
                 } else {
-                    document.getElementById('initialLoadingMessage').textContent = "載入篩選選項失敗: " + response.error;
-                }
+      document.getElementById('initialLoadingMessage').textContent = "載入篩選選項失敗: " + response.error;
+    }
+  } catch (error) {
+    document.getElementById('initialLoadingMessage').textContent = "載入時發生錯誤: " + error.message;
+  }
             })
             .withFailureHandler(error => {
                 document.getElementById('initialLoadingMessage').textContent = "載入篩選選項時發生錯誤: " + error.message;
