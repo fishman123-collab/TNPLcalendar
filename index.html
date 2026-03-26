@@ -518,16 +518,37 @@ async function initializeApp() {
     handleAuthError("初始化失敗: " + error.message);
   }
 }
-    function handleLogout() {
-      const sessionId = localStorage.getItem(SESSION_STORAGE_KEY);
-      if (sessionId) google.script.run.doLogout(sessionId);
-      localStorage.removeItem(SESSION_STORAGE_KEY);
-      currentUserRole = null;
-      google.script.run.withSuccessHandler(function(logoutUrl) {
-          showAuthView("您即將被登出...", true);
-          window.top.location.href = logoutUrl;
-      }).getLogoutUrl();
+    async function handleLogout() {
+    if (!confirm("確定要登出系統嗎？")) return;
+
+    showAuthView("正在為您登出...", true);
+
+    try {
+        // (可選) 通知後端紀錄登出狀態。如果您的後端已經不需要處理 sessionId，
+        // 這段 callGasApi 其實可以省略，但我先保留以防您的後端有寫入 log 的需求。
+        await callGasApi('doLogout', {});
+    } catch (error) {
+        console.warn("後端登出通知失敗，但仍會執行前端登出", error);
     }
+
+    // 1. 清除前端的全域變數與狀態
+    currentUserRole = null;
+    globalLineUserId = null;
+
+    // 2. 執行 LIFF 內建的登出功能 (清除 LINE 登入狀態)
+    if (liff.isLoggedIn()) {
+        liff.logout();
+    }
+
+    // 3. 根據使用者的環境決定最後的動作
+    if (liff.isInClient()) {
+        // 如果使用者是在 LINE APP 裡面開啟這個網頁，直接幫他關閉視窗
+        liff.closeWindow();
+    } else {
+        // 如果使用者是用電腦版或外部 Chrome 瀏覽器開啟，則重新整理頁面，讓他回到登入驗證畫面
+        window.location.reload();
+    }
+}
     function showAppView(username, userRole) {
       currentUserName = username; // [新增] 儲存當前使用者名稱
       document.body.classList.remove('auth-container'); 
@@ -742,46 +763,49 @@ async function initializeApp() {
         container.style.display = 'block';
         populateForm('main', 'CREATE', { formType: formType });
     }
-    function loadDataForMainForm(mode) {
-        const spinner = document.getElementById('modalLoadingSpinner');
-        const editButton = document.getElementById('switchToEditModeButton');
-        const cloneButton = document.getElementById('switchToCloneModeButton');
-        spinner.style.display = 'block';
-        editButton.disabled = true;
-        cloneButton.disabled = true;
+    async function loadDataForMainForm(mode) {
+    const spinner = document.getElementById('modalLoadingSpinner');
+    const editButton = document.getElementById('switchToEditModeButton');
+    const cloneButton = document.getElementById('switchToCloneModeButton');
+    
+    spinner.style.display = 'block';
+    editButton.disabled = true;
+    cloneButton.disabled = true;
 
-        const sessionId = localStorage.getItem(SESSION_STORAGE_KEY);
-        const eventIdentifier = {
-            rowIndex: currentEventObject.rowIndex,
-            calendarEventId: currentEventObject.calendarEventId
-        };
+    const eventIdentifier = {
+        rowIndex: currentEventObject.rowIndex,
+        calendarEventId: currentEventObject.calendarEventId
+    };
 
-        google.script.run
-            .withSuccessHandler(response => {
-                spinner.style.display = 'none';
-                editButton.disabled = false;
-                cloneButton.disabled = false;
-                closeModal();
-                if (response.error) {
-                    alert(`載入資料失敗: ${response.error}`);
-                } else {
-                    const formType = response.formType;
-                    const formHtml = generateFormHtml('main', formType);
-                    const container = document.getElementById('mainFormContainer');
-                    container.innerHTML = formHtml;
-                    container.style.display = 'block';
-                    document.getElementById('searchAndResultsContainer').style.display = 'none';
-                    populateForm('main', mode, response);
-                }
-            })
-            .withFailureHandler(error => {
-                alert(`載入資料時發生網路錯誤: ${error.message}`);
-                spinner.style.display = 'none';
-                editButton.disabled = false;
-                cloneButton.disabled = false;
-            })
-            .getAnyEventDataForEdit(sessionId, eventIdentifier);
+    try {
+        // [修改] 使用 callGasApi，action 為 'getAnyEventDataForEdit'
+        const response = await callGasApi('getAnyEventDataForEdit', {
+            eventIdentifier: eventIdentifier
+        });
+
+        spinner.style.display = 'none';
+        editButton.disabled = false;
+        cloneButton.disabled = false;
+        closeModal();
+
+        if (response.error) {
+            alert(`載入資料失敗: ${response.error}`);
+        } else {
+            const formType = response.formType;
+            const formHtml = generateFormHtml('main', formType);
+            const container = document.getElementById('mainFormContainer');
+            container.innerHTML = formHtml;
+            container.style.display = 'block';
+            document.getElementById('searchAndResultsContainer').style.display = 'none';
+            populateForm('main', mode, response);
+        }
+    } catch (error) {
+        alert(`載入資料時發生網路錯誤: ${error.message}`);
+        spinner.style.display = 'none';
+        editButton.disabled = false;
+        cloneButton.disabled = false;
     }
+}
 
     // ===============================================================
     // --- 6. 表單生成與填充 (Form Generation & Population) ---
@@ -1226,34 +1250,51 @@ async function initializeApp() {
     createSubmitFailureHandler(prefix, "新增")(error);
   }
 }
-    function handleUpdateSubmit(prefix) {
-        if (!validateForm(prefix)) {
-            showMainFormMessage("請檢查紅色標示的欄位是否已正確填寫。", true);
-            return;
-        }
-        const eventData = collectFormData(prefix);
-        showMainFormLoading(true, "正在更新資料...");
-        google.script.run
-            .withSuccessHandler(createSubmitSuccessHandler(prefix, "更新成功！"))
-            .withFailureHandler(createSubmitFailureHandler(prefix, "更新"))
-            .updateRowAndSync(localStorage.getItem(SESSION_STORAGE_KEY), eventData);
+    async function handleUpdateSubmit(prefix) {
+    if (!validateForm(prefix)) {
+        showMainFormMessage("請檢查紅色標示的欄位是否已正確填寫。", true);
+        return;
     }
-    function handleDeleteSubmit(prefix) {
-        const eventName = document.getElementById(`${prefix}_eventName`).value || '此項目';
-        if (!confirm(`您確定要永久刪除 "${eventName}" 嗎？此操作無法復原。`)) return;
+    const eventData = collectFormData(prefix);
+    showMainFormLoading(true, "正在更新資料...");
+    
+    try {
+        // [修改] 使用 callGasApi，action 為 'updateRowAndSync'
+        const response = await callGasApi('updateRowAndSync', {
+            eventData: eventData
+        });
         
-        const eventId = document.getElementById(`${prefix}_eventId`).value;
-        
-        if (!eventId) {
-            showMainFormMessage("刪除失敗：缺少活動 ID。", true);
-            return;
-        }
-        showMainFormLoading(true, "正在刪除資料...");
-        google.script.run
-            .withSuccessHandler(createSubmitSuccessHandler(prefix, "刪除成功！"))
-            .withFailureHandler(createSubmitFailureHandler(prefix, "刪除"))
-            .deleteAnyEventById(localStorage.getItem(SESSION_STORAGE_KEY), eventId);
+        // 將 response 傳給原本寫好的成功處理函式
+        createSubmitSuccessHandler(prefix, "更新成功！")(response);
+    } catch (error) {
+        // 將 error 傳給原本寫好的失敗處理函式
+        createSubmitFailureHandler(prefix, "更新")(error);
     }
+}
+    async function handleDeleteSubmit(prefix) {
+    const eventName = document.getElementById(`${prefix}_eventName`).value || '此項目';
+    if (!confirm(`您確定要永久刪除 "${eventName}" 嗎？此操作無法復原。`)) return;
+    
+    const eventId = document.getElementById(`${prefix}_eventId`).value;
+    
+    if (!eventId) {
+        showMainFormMessage("刪除失敗：缺少活動 ID。", true);
+        return;
+    }
+    
+    showMainFormLoading(true, "正在刪除資料...");
+    
+    try {
+        // [修改] 使用 callGasApi，action 為 'deleteAnyEventById'
+        const response = await callGasApi('deleteAnyEventById', {
+            eventId: eventId
+        });
+        
+        createSubmitSuccessHandler(prefix, "刪除成功！")(response);
+    } catch (error) {
+        createSubmitFailureHandler(prefix, "刪除")(error);
+    }
+}
     function collectFormData(prefix) {
         const getVal = (id) => document.getElementById(`${prefix}_${id}`) ? document.getElementById(`${prefix}_${id}`).value : '';
         const formType = getVal('formType');
@@ -1336,12 +1377,10 @@ async function initializeApp() {
             });
         executeSearch();
     }
-    function executeSearch() {
-      hideMainForm(); 
-      const sessionId = localStorage.getItem(SESSION_STORAGE_KEY);
-      if (!sessionId) { handleAuthError(); return; }
-      
-      const queryParams = {
+    async function executeSearch() {
+    hideMainForm(); 
+    
+    const queryParams = {
         startDate: document.getElementById('simpleStartDate').value,
         endDate: document.getElementById('simpleEndDate').value,
         keyword: document.getElementById('simpleKeyword').value,
@@ -1352,28 +1391,39 @@ async function initializeApp() {
         visibility: document.getElementById('visibility').value,
         instructor: document.getElementById('instructor').value,
         organizer: document.getElementById('organizer').value,
-      // [新增] 抓取用餐清潔的下拉選單值
+        // [新增] 抓取用餐清潔的下拉選單值
         cleaningRequired: document.getElementById('cleaningRequired').value
-      };
-      
-      document.getElementById('resultsBody').innerHTML = ''; 
-      showGeneralMessage(''); 
-      showSimpleOrAdvancedSearchLoading(true); 
+    };
+    
+    document.getElementById('resultsBody').innerHTML = ''; 
+    showGeneralMessage(''); 
+    showSimpleOrAdvancedSearchLoading(true); 
 
-      google.script.run
-        .withSuccessHandler(function(response) {
-          showSimpleOrAdvancedSearchLoading(false);
-          if (response.unauthorized) { handleAuthError(response.error); return; }
-          if (response.error) { showGeneralMessage("查詢失敗: " + response.error, true); return; }
-          showGeneralMessage(response.message || "查詢完成。", false); 
-          displayResults(response.results); 
-        })
-        .withFailureHandler(function(error) {
-          showSimpleOrAdvancedSearchLoading(false);
-          showGeneralMessage("查詢時發生錯誤: " + error.message, true);
-        })
-        .searchEvents(sessionId, queryParams);
+    try {
+        // [修改] 使用 callGasApi，action 為 'searchEvents'
+        const response = await callGasApi('searchEvents', {
+            queryParams: queryParams
+        });
+
+        showSimpleOrAdvancedSearchLoading(false);
+        
+        if (response.unauthorized) { 
+            handleAuthError(response.error); 
+            return; 
+        }
+        if (response.error) { 
+            showGeneralMessage("查詢失敗: " + response.error, true); 
+            return; 
+        }
+        
+        showGeneralMessage(response.message || "查詢完成。", false); 
+        displayResults(response.results); 
+
+    } catch (error) {
+        showSimpleOrAdvancedSearchLoading(false);
+        showGeneralMessage("查詢時發生錯誤: " + error.message, true);
     }
+}
     function displayResults(results) {
         const resultsBody = document.getElementById('resultsBody');
         resultsBody.innerHTML = ''; 
@@ -1619,116 +1669,164 @@ async function initializeApp() {
     // ===============================================================
     // --- 10. AI 功能 (AI Features) ---
     // ===============================================================
-    function handleNaturalLanguageSearch() {
-      const sessionId = localStorage.getItem(SESSION_STORAGE_KEY);
-      if (!sessionId) { handleAuthError("無法使用 AI 搜尋：Session ID 遺失。"); return; }
-      const queryText = document.getElementById('aiQuery').value;
-      if (!queryText.trim()) { showGeneralMessage("請在 AI 搜尋框中輸入您的問題。", true, 'aiSearchMessageArea'); return; }
-      
-      document.getElementById('resultsBody').innerHTML = '';
-      showGeneralMessage('AI 正在為您分析查詢...', false, 'aiSearchMessageArea');
-      document.getElementById('aiSearchSpinner').style.display = 'block';
-      document.getElementById('aiSearchButton').disabled = true;
-
-      google.script.run
-        .withSuccessHandler(function(response) {
-          document.getElementById('aiSearchSpinner').style.display = 'none';
-          document.getElementById('aiSearchButton').disabled = false;
-          if (response.unauthorized) { handleAuthError(response.error); return; }
-          if (response.error) { showGeneralMessage("AI 搜尋失敗: " + response.error, true, 'aiSearchMessageArea'); return; }
-          showGeneralMessage(response.message || "AI 搜尋完成。", false, 'aiSearchMessageArea');
-          displayResults(response.results);
-        })
-        .withFailureHandler(function(error) {
-          document.getElementById('aiSearchSpinner').style.display = 'none';
-          document.getElementById('aiSearchButton').disabled = false;
-          showGeneralMessage("AI 搜尋時發生錯誤: " + error.message, true, 'aiSearchMessageArea');
-        })
-        .processNaturalLanguageQuery(queryText, sessionId);
+    async function handleNaturalLanguageSearch() {
+    // 1. 取出使用者輸入的問題
+    const queryText = document.getElementById('aiQuery').value;
+    if (!queryText.trim()) { 
+        showGeneralMessage("請在 AI 搜尋框中輸入您的問題。", true, 'aiSearchMessageArea'); 
+        return; 
     }
-    function handleSendChatMessage() {
-       const sessionId = localStorage.getItem(SESSION_STORAGE_KEY);
-        if (!sessionId) { handleAuthError("無法使用 AI 客服：Session ID 遺失。"); return; }
-        const chatInput = document.getElementById('chatInput');
-        const userMessage = chatInput.value.trim();
-        if (!userMessage) return;
+    
+    // 2. 更新 UI 為載入中狀態
+    document.getElementById('resultsBody').innerHTML = '';
+    showGeneralMessage('AI 正在為您分析查詢...', false, 'aiSearchMessageArea');
+    document.getElementById('aiSearchSpinner').style.display = 'block';
+    document.getElementById('aiSearchButton').disabled = true;
 
-        appendChatMessage(userMessage, "user");
-        chatInput.value = "";
+    try {
+        // 3. [修改] 使用 callGasApi 發送 AI 搜尋請求
+        const response = await callGasApi('processNaturalLanguageQuery', {
+            queryText: queryText
+        });
+
+        // 4. 收到回應後，恢復按鈕與隱藏 Spinner
+        document.getElementById('aiSearchSpinner').style.display = 'none';
+        document.getElementById('aiSearchButton').disabled = false;
+
+        // 5. 處理後端回傳的各種狀況
+        if (response.unauthorized) { 
+            handleAuthError(response.error); 
+            return; 
+        }
+        if (response.error) { 
+            showGeneralMessage("AI 搜尋失敗: " + response.error, true, 'aiSearchMessageArea'); 
+            return; 
+        }
+
+        // 6. 成功取得結果，顯示結果與訊息
+        showGeneralMessage(response.message || "AI 搜尋完成。", false, 'aiSearchMessageArea');
+        displayResults(response.results);
+
+    } catch (error) {
+        console.error("AI 搜尋發生錯誤:", error);
         
-        document.getElementById('chatLoadingSpinnerContainer').style.display = 'flex';
-        document.getElementById('sendChatButton').disabled = true;
-        document.getElementById('resultsBody').innerHTML = '';
-        showGeneralMessage('');
-
-        google.script.run
-            .withSuccessHandler(function(response) {
-                document.getElementById('chatLoadingSpinnerContainer').style.display = 'none';
-                document.getElementById('sendChatButton').disabled = false;
-                if (response.unauthorized) { appendChatMessage("錯誤：連線階段已失效。", "ai"); handleAuthError(response.error); return; }
-                if (response.error) { appendChatMessage("AI 客服發生錯誤：" + response.error, "ai"); } 
-                else { 
-                    if (response.answer) appendChatMessage(response.answer, "ai"); 
-                    if (response.events && Array.isArray(response.events) && response.events.length > 0) {
-                        showGeneralMessage(`AI 客服為您找到 ${response.events.length} 筆活動：`, false);
-                        displayResults(response.events);
-                    }
-                }
-            })
-            .withFailureHandler(function(error) {
-                document.getElementById('chatLoadingSpinnerContainer').style.display = 'none';
-                document.getElementById('sendChatButton').disabled = false;
-                appendChatMessage("AI 客服連線失敗：" + error.message, "ai");
-            })
-            .getAiChatResponse(userMessage, sessionId);
+        // 發生錯誤時也要恢復 UI 狀態
+        document.getElementById('aiSearchSpinner').style.display = 'none';
+        document.getElementById('aiSearchButton').disabled = false;
+        showGeneralMessage("AI 搜尋時發生網路或系統錯誤: " + error.message, true, 'aiSearchMessageArea');
     }
-    function handleAiToolboxAction(actionType) {
-      if (!currentEventObject) {
-          document.getElementById('aiToolboxError').textContent = "沒有活動資料可供處理。";
-          return;
-      }
-      const sessionId = localStorage.getItem(SESSION_STORAGE_KEY);
-      if (!sessionId) {
-          document.getElementById('aiToolboxError').textContent = "Session 失效，請重新整理。";
-          return;
-      }
-      const additionalContext = document.getElementById('aiAdditionalContextInput').value;
-      const spinner = document.getElementById('aiToolboxSpinner');
-      
-      spinner.style.display = 'block';
-      document.getElementById('aiGeneratedOutputArea').style.display = 'none';
-      document.getElementById('aiGeneratedOutputText').innerHTML = '';
-      document.getElementById('aiToolboxError').textContent = '';
+}
+    async function handleSendChatMessage() {
+    // [修改] 移除原本的 sessionId 判斷，因為 callGasApi 會自動帶入全域的 LINE ID
+    const chatInput = document.getElementById('chatInput');
+    const userMessage = chatInput.value.trim();
+    if (!userMessage) return;
 
-      let backendFunction;
-      if (actionType === 'summary') backendFunction = 'generateActivitySummaryWithAi';
-      else if (actionType === 'promotion') backendFunction = 'generateEventPromotionWithAi';
-      else if (actionType === 'recap') backendFunction = 'generateEventRecapWithAi';
-      else { spinner.style.display = 'none'; return; }
-      
-      google.script.run
-          .withSuccessHandler(function(response) {
-              spinner.style.display = 'none';
-              if (response.unauthorized) { document.getElementById('aiToolboxError').textContent = "未授權，請重新登入。"; return; }
-              if (response.error) { document.getElementById('aiToolboxError').textContent = "AI 處理失敗：" + response.error; } 
-              else {
-                  let displayText = "";
-                  if (actionType === 'summary' && response.summary && response.highlights) {
-                      displayText = `摘要：\n${response.summary}\n\n亮點：\n${response.highlights.join('\n- ')}`;
-                  } else if (response.generatedText) {
-                      displayText = response.generatedText;
-                  }
-                  document.getElementById('aiGeneratedOutputText').innerHTML = displayText.replace(/\n/g, "<br>");
-                  document.getElementById('aiGeneratedOutputArea').style.display = 'block';
-                  document.getElementById('modalBody').scrollTo({ top: document.getElementById('modalBody').scrollHeight, behavior: 'smooth' });
-              }
-          })
-          .withFailureHandler(function(error) {
-              spinner.style.display = 'none';
-              document.getElementById('aiToolboxError').textContent = "與 AI 服務連線時發生錯誤：" + error.message;
-          })
-          [backendFunction](currentEventObject, additionalContext, sessionId);
+    // 顯示使用者對話
+    appendChatMessage(userMessage, "user");
+    chatInput.value = "";
+    
+    // 更新 UI 為處理中狀態
+    document.getElementById('chatLoadingSpinnerContainer').style.display = 'flex';
+    document.getElementById('sendChatButton').disabled = true;
+    document.getElementById('resultsBody').innerHTML = '';
+    showGeneralMessage('');
+
+    try {
+        // [修改] 替換為 callGasApi，action 命名為 'getAiChatResponse'
+        const response = await callGasApi('getAiChatResponse', {
+            userMessage: userMessage
+        });
+
+        // 恢復 UI 狀態
+        document.getElementById('chatLoadingSpinnerContainer').style.display = 'none';
+        document.getElementById('sendChatButton').disabled = false;
+
+        // 處理後端回傳的結果
+        if (response.unauthorized) { 
+            appendChatMessage("錯誤：連線權限已失效。", "ai"); 
+            handleAuthError(response.error); 
+            return; 
+        }
+        
+        if (response.error) { 
+            appendChatMessage("AI 客服發生錯誤：" + response.error, "ai"); 
+        } else { 
+            // 顯示 AI 的文字回覆
+            if (response.answer) appendChatMessage(response.answer, "ai"); 
+            
+            // 如果 AI 有回傳符合條件的活動清單，將其顯示在結果區
+            if (response.events && Array.isArray(response.events) && response.events.length > 0) {
+                showGeneralMessage(`AI 客服為您找到 ${response.events.length} 筆活動：`, false);
+                displayResults(response.events);
+            }
+        }
+    } catch (error) {
+        // 錯誤捕捉處理
+        console.error("AI 客服連線發生錯誤:", error);
+        document.getElementById('chatLoadingSpinnerContainer').style.display = 'none';
+        document.getElementById('sendChatButton').disabled = false;
+        appendChatMessage("AI 客服連線失敗：" + error.message, "ai");
     }
+}
+    async function handleAiToolboxAction(actionType) {
+    if (!currentEventObject) {
+        document.getElementById('aiToolboxError').textContent = "沒有活動資料可供處理。";
+        return;
+    }
+
+    // [修改] 移除 sessionId 的驗證，因為我們現在由 callGasApi 處理身分
+    const additionalContext = document.getElementById('aiAdditionalContextInput').value;
+    const spinner = document.getElementById('aiToolboxSpinner');
+    
+    // 更新 UI 為載入中
+    spinner.style.display = 'block';
+    document.getElementById('aiGeneratedOutputArea').style.display = 'none';
+    document.getElementById('aiGeneratedOutputText').innerHTML = '';
+    document.getElementById('aiToolboxError').textContent = '';
+
+    // 決定要呼叫的後端 action 名稱
+    let actionName;
+    if (actionType === 'summary') actionName = 'generateActivitySummaryWithAi';
+    else if (actionType === 'promotion') actionName = 'generateEventPromotionWithAi';
+    else if (actionType === 'recap') actionName = 'generateEventRecapWithAi';
+    else { spinner.style.display = 'none'; return; }
+    
+    try {
+        // [修改] 使用 callGasApi 向後端請求，把 actionName 當作目標
+        const response = await callGasApi(actionName, {
+            eventObject: currentEventObject,
+            additionalContext: additionalContext
+        });
+
+        spinner.style.display = 'none';
+
+        if (response.unauthorized) { 
+            document.getElementById('aiToolboxError').textContent = "未授權，請重新登入。"; 
+            return; 
+        }
+        if (response.error) { 
+            document.getElementById('aiToolboxError').textContent = "AI 處理失敗：" + response.error; 
+        } else {
+            let displayText = "";
+            if (actionType === 'summary' && response.summary && response.highlights) {
+                displayText = `摘要：\n${response.summary}\n\n亮點：\n${response.highlights.join('\n- ')}`;
+            } else if (response.generatedText) {
+                displayText = response.generatedText;
+            }
+            
+            // 顯示結果與捲動畫面
+            document.getElementById('aiGeneratedOutputText').innerHTML = displayText.replace(/\n/g, "<br>");
+            document.getElementById('aiGeneratedOutputArea').style.display = 'block';
+            document.getElementById('modalBody').scrollTo({ top: document.getElementById('modalBody').scrollHeight, behavior: 'smooth' });
+        }
+    } catch (error) {
+        // 錯誤捕捉與 UI 恢復
+        console.error("AI 工具箱執行發生錯誤:", error);
+        spinner.style.display = 'none';
+        document.getElementById('aiToolboxError').textContent = "與 AI 服務連線時發生錯誤：" + error.message;
+    }
+}
     function resetAiToolbox() {
         const aiContext = document.getElementById('aiAdditionalContextInput');
         const aiOutput = document.getElementById('aiGeneratedOutputArea');
@@ -1782,82 +1880,104 @@ async function initializeApp() {
     }
 
     // 2. 提交問題
-    function submitInquiry() {
-        const source = document.getElementById('inqSource').value;
-        const name = document.getElementById('inqName').value;
-        const phone = document.getElementById('inqPhone').value;
-        const content = document.getElementById('inqContent').value;
-        // [新增] 抓取填單人
-        const submitter = document.getElementById('inqSubmitter').value;
+    async function submitInquiry() {
+    const source = document.getElementById('inqSource').value;
+    const name = document.getElementById('inqName').value;
+    const phone = document.getElementById('inqPhone').value;
+    const content = document.getElementById('inqContent').value;
+    // [新增] 抓取填單人
+    const submitter = document.getElementById('inqSubmitter').value;
 
-        if (!name || !content) {
-            alert("請至少填寫姓名與問題內容。");
-            return;
-        }
-        
-        // [新增] 檢查填單人是否填寫 (視需求決定是否為必填，建議必填)
-        if (!submitter) {
-            alert("請填寫填單人姓名。");
-            return;
-        }
-
-        // [修正] 將 submitter 加入 formData
-        const formData = { 
-            source: source, 
-            name: name, 
-            phone: phone, 
-            content: content, 
-            submitter: submitter // <--- 這裡如果漏掉，F欄就會寫入錯誤(或變成登入者名稱)
-        };
-        
-        const btn = document.querySelector('#inquirySubmitForm button');
-        btn.disabled = true;
-        btn.textContent = "提交中...";
-
-        google.script.run
-            .withSuccessHandler(res => {
-                btn.disabled = false;
-                btn.textContent = "提交問題";
-                if (res.success) {
-                    alert(res.message);
-                    // 清空表單
-                    document.getElementById('inqName').value = '';
-                    document.getElementById('inqPhone').value = '';
-                    document.getElementById('inqContent').value = '';
-                    // 填單人不清空，保留方便連續輸入
-                    
-                    // [修正重點] 若同時是管理員，刷新列表 -> 改用新的搜尋函式
-                    if (currentUserRole === '管理員') {
-                        handleInquirySearch(); 
-                    }
-
-                } else {
-                    alert(res.message);
-                }
-            })
-            .submitReaderInquiry(localStorage.getItem(SESSION_STORAGE_KEY), formData);
+    if (!name || !content) {
+        alert("請至少填寫姓名與問題內容。");
+        return;
     }
+    
+    // [新增] 檢查填單人是否填寫 (視需求決定是否為必填，建議必填)
+    if (!submitter) {
+        alert("請填寫填單人姓名。");
+        return;
+    }
+
+    // [修正] 將 submitter 加入 formData
+    const formData = { 
+        source: source, 
+        name: name, 
+        phone: phone, 
+        content: content, 
+        submitter: submitter // <--- 這裡如果漏掉，F欄就會寫入錯誤(或變成登入者名稱)
+    };
+    
+    const btn = document.querySelector('#inquirySubmitForm button');
+    btn.disabled = true;
+    btn.textContent = "提交中...";
+
+    try {
+        // [修改] 替換為 callGasApi，action 命名為 'submitReaderInquiry'
+        const res = await callGasApi('submitReaderInquiry', {
+            formData: formData
+        });
+
+        // 恢復按鈕狀態
+        btn.disabled = false;
+        btn.textContent = "提交問題";
+
+        if (res.success) {
+            alert(res.message);
+            // 清空表單
+            document.getElementById('inqName').value = '';
+            document.getElementById('inqPhone').value = '';
+            document.getElementById('inqContent').value = '';
+            // 填單人不清空，保留方便連續輸入
+            
+            // [修正重點] 若同時是管理員，刷新列表 -> 改用新的搜尋函式
+            if (currentUserRole === '管理員') {
+                handleInquirySearch(); 
+            }
+        } else {
+            alert(res.message);
+        }
+    } catch (error) {
+        console.error("提交問題時發生錯誤:", error);
+        alert("執行失敗: " + error.message);
+        
+        // 發生錯誤時恢復按鈕狀態
+        btn.disabled = false;
+        btn.textContent = "提交問題";
+    }
+}
 
     // 3. 載入列表
     // [新增] 處理搜尋與列表載入
-    function handleInquirySearch() {
-        const keyword = document.getElementById('inqSearchKeyword').value || '';
-        const loading = document.getElementById('inquiryListLoading');
-        loading.style.display = 'block';
-        document.getElementById('inquiryListContainer').innerHTML = '';
+    async function handleInquirySearch() {
+    const keyword = document.getElementById('inqSearchKeyword').value || '';
+    const loading = document.getElementById('inquiryListLoading');
+    
+    // 顯示載入中動畫並清空舊列表
+    loading.style.display = 'block';
+    document.getElementById('inquiryListContainer').innerHTML = '';
 
-        google.script.run
-            .withSuccessHandler(res => {
-                loading.style.display = 'none';
-                if (res.success) {
-                    allInquiries = res.data;
-                    renderInquiryList();
-                } else {
-                    alert(res.message);
-                }
-            })
-            .searchReaderInquiries(localStorage.getItem(SESSION_STORAGE_KEY), keyword);
+    try {
+        // [修改] 替換為 callGasApi，action 命名為 'searchReaderInquiries'
+        const res = await callGasApi('searchReaderInquiries', {
+            keyword: keyword
+        });
+
+        // 隱藏載入中動畫
+        loading.style.display = 'none';
+
+        if (res.success) {
+            allInquiries = res.data;
+            renderInquiryList();
+        } else {
+            alert(res.message);
+        }
+    } catch (error) {
+        console.error("搜尋讀者洽詢時發生錯誤:", error);
+        loading.style.display = 'none';
+        alert("執行失敗: " + error.message);
     }
+}
 
     // 4. 切換分頁 (未處理 / 已處理 / 全部)
     function switchInquiryTab(tab) {
@@ -2035,42 +2155,50 @@ async function initializeApp() {
     }
 
     // 6. 送出回覆
-    function submitReply(rowIndex) {
-        const replyContent = document.getElementById(`reply_${rowIndex}`).value;
-        // [新增] 取得承辦人
-        const handlerName = document.getElementById(`handler_${rowIndex}`).value;
+    async function submitReply(rowIndex) {
+    // [修正] ID 統一改為 reply_input_
+    const replyInput = document.getElementById(`reply_input_${rowIndex}`); 
+    const handlerInput = document.getElementById(`handler_${rowIndex}`);
+    
+    const replyContent = replyInput.value;
+    const handlerName = handlerInput.value;
 
-        if (!replyContent) {
-            alert("請輸入回覆內容");
-            return;
-        }
-        if (!handlerName) {
-            alert("請輸入承辦人姓名");
-            return;
-        }
+    if (!replyContent) { alert("請輸入回覆內容"); return; }
+    if (!handlerName) { alert("請輸入承辦人姓名"); return; }
 
-        if (!confirm("確定要送出回覆嗎？")) return;
+    if (!confirm("確定要更新/送出回覆嗎？")) return;
+    
+    // 顯示 Loading (如果是在編輯模式下的按鈕)
+    const btn = event.target;
+    const originalText = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = "處理中...";
+
+    try {
+        // [修改] 替換為 callGasApi，action 命名為 'replyToReaderInquiry'
+        const res = await callGasApi('replyToReaderInquiry', {
+            rowIndex: rowIndex,
+            replyContent: replyContent,
+            handlerName: handlerName
+        });
+
+        if (res.success) {
+            alert("操作成功");
+            handleInquirySearch(); // 刷新列表
+        } else {
+            alert(res.message);
+            btn.disabled = false;
+            btn.textContent = originalText;
+        }
+    } catch (error) {
+        console.error("更新/送出回覆時發生錯誤:", error);
+        alert("執行失敗: " + error.message);
         
-        // 顯示按鈕 loading 狀態 (Optional UX improvement)
-        const btn = event.target; // 取得點擊的按鈕
-        const originalText = btn.textContent;
-        btn.disabled = true;
-        btn.textContent = "傳送中...";
-
-        google.script.run
-            .withSuccessHandler(res => {
-                if (res.success) {
-                    alert("回覆成功");
-                    handleInquirySearch(); // 重新整理列表
-                } else {
-                    alert(res.message);
-                    btn.disabled = false;
-                    btn.textContent = originalText;
-                }
-            })
-            // [修改] 傳遞 handlerName
-            .replyToReaderInquiry(localStorage.getItem(SESSION_STORAGE_KEY), rowIndex, replyContent, handlerName);
+        // 發生錯誤時，將按鈕恢復原狀
+        btn.disabled = false;
+        btn.textContent = originalText;
     }
+}
 
     // 讀取後端通訊錄
 // 我們會將此函式放在程式碼最後面執行，讓它在背景默默載入
@@ -2217,35 +2345,51 @@ loadContactList();
         document.getElementById('editInquiryModal').style.display = 'none';
     }
 
-    function submitInquiryEdit() {
-        const rowIndex = document.getElementById('editRowIndex').value;
-        const source = document.getElementById('editInqSource').value;
-        const name = document.getElementById('editInqName').value;
-        const phone = document.getElementById('editInqPhone').value;
-        const content = document.getElementById('editInqContent').value;
+    async function submitInquiryEdit() {
+    const rowIndex = document.getElementById('editRowIndex').value;
+    const source = document.getElementById('editInqSource').value;
+    const name = document.getElementById('editInqName').value;
+    const phone = document.getElementById('editInqPhone').value;
+    const content = document.getElementById('editInqContent').value;
 
-        if (!name || !content) { alert("姓名與內容不可為空"); return; }
-
-        const formData = { source, name, phone, content };
-        const btn = document.querySelector('#editInquiryModal .btn-primary');
-        const originalText = btn.textContent;
-        btn.disabled = true;
-        btn.textContent = "儲存中...";
-
-        google.script.run
-            .withSuccessHandler(res => {
-                btn.disabled = false;
-                btn.textContent = originalText;
-                if (res.success) {
-                    alert(res.message);
-                    closeEditInquiryModal();
-                    handleInquirySearch(); // 刷新列表
-                } else {
-                    alert(res.message);
-                }
-            })
-            .editInquiryContent(localStorage.getItem(SESSION_STORAGE_KEY), rowIndex, formData);
+    if (!name || !content) { 
+        alert("姓名與內容不可為空"); 
+        return; 
     }
+
+    const formData = { source, name, phone, content };
+    const btn = document.querySelector('#editInquiryModal .btn-primary');
+    const originalText = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = "儲存中...";
+
+    try {
+        // [修改] 替換為 callGasApi，action 命名為 'editInquiryContent'
+        const res = await callGasApi('editInquiryContent', {
+            rowIndex: rowIndex,
+            formData: formData
+        });
+
+        // 恢復按鈕狀態
+        btn.disabled = false;
+        btn.textContent = originalText;
+
+        if (res.success) {
+            alert(res.message);
+            closeEditInquiryModal();
+            handleInquirySearch(); // 刷新列表
+        } else {
+            alert(res.message);
+        }
+    } catch (error) {
+        console.error("儲存修改時發生錯誤:", error);
+        alert("執行失敗: " + error.message);
+        
+        // 發生錯誤時，記得把按鈕恢復原狀，避免卡死
+        btn.disabled = false;
+        btn.textContent = originalText;
+    }
+}
 
     // --- [新增] 修改回覆 (切換顯示模式) ---
 
@@ -2265,39 +2409,7 @@ loadContactList();
         document.getElementById(`reply_edit_form_${rowIndex}`).style.display = 'none';
     }
 
-    // --- [修改] submitReply (需調整以支援 textarea id 的變化) ---
-    function submitReply(rowIndex) {
-        // [修正] ID 統一改為 reply_input_
-        const replyInput = document.getElementById(`reply_input_${rowIndex}`); 
-        const handlerInput = document.getElementById(`handler_${rowIndex}`);
-        
-        const replyContent = replyInput.value;
-        const handlerName = handlerInput.value;
-
-        if (!replyContent) { alert("請輸入回覆內容"); return; }
-        if (!handlerName) { alert("請輸入承辦人姓名"); return; }
-
-        if (!confirm("確定要更新/送出回覆嗎？")) return;
-        
-        // 顯示 Loading (如果是在編輯模式下的按鈕)
-        const btn = event.target;
-        const originalText = btn.textContent;
-        btn.disabled = true;
-        btn.textContent = "處理中...";
-
-        google.script.run
-            .withSuccessHandler(res => {
-                if (res.success) {
-                    alert("操作成功");
-                    handleInquirySearch();
-                } else {
-                    alert(res.message);
-                    btn.disabled = false;
-                    btn.textContent = originalText;
-                }
-            })
-            .replyToReaderInquiry(localStorage.getItem(SESSION_STORAGE_KEY), rowIndex, replyContent, handlerName);
-    }
+    
 
   </script>
 </body>
